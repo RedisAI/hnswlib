@@ -85,6 +85,9 @@ namespace hnswlib {
             cur_element_count--;
 
         }
+        void checkIntegrity() {
+            return;
+        }
 
 
         std::priority_queue<std::pair<dist_t, labeltype >>

@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <unordered_set>
 #include <list>
+#include <set>
 
 namespace hnswlib {
     typedef unsigned int tableint;
@@ -25,7 +26,7 @@ namespace hnswlib {
             loadIndex(location, s, max_elements);
         }
 
-        HierarchicalNSW(SpaceInterface<dist_t> *s, size_t max_elements, size_t M = 16, size_t ef_construction = 200, size_t random_seed = 100) :
+        HierarchicalNSW(SpaceInterface<dist_t> *s, size_t max_elements, size_t M = 16, size_t ef_construction = 200, size_t ef = 10, size_t random_seed = 100) :
                 link_list_locks_(max_elements), link_list_update_locks_(max_update_element_locks), element_levels_(max_elements) {
             max_elements_ = max_elements;
 
@@ -37,13 +38,20 @@ namespace hnswlib {
             maxM_ = M_;
             maxM0_ = M_ * 2;
             ef_construction_ = std::max(ef_construction,M_);
-            ef_ = 10;
+            ef_ = ef;
 
             level_generator_.seed(random_seed);
             update_probability_generator_.seed(random_seed + 1);
 
-            size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
+
+            // memory looks like this:
+            // -----4------ | -----4*M0----------- | ----8------------------| ------32------- | ----8---- |
+            // <links_len>  | <link_1> <link_2>... | <incoming_links_array> |   <data>        |  <label>
+            // alon: added a dynamic array for the incoming edges which are not outgoing as well.
+            size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint)
+              + sizeof(void*);
             size_data_per_element_ = size_links_level0_ + data_size_ + sizeof(labeltype);
+            incoming_links_offset0 = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
             offsetData_ = size_links_level0_;
             label_offset_ = size_links_level0_ + data_size_;
             offsetLevel0_ = 0;
@@ -56,8 +64,6 @@ namespace hnswlib {
 
             visited_list_pool_ = new VisitedListPool(1, max_elements);
 
-
-
             //initializations for special treatment of the first node
             enterpoint_node_ = -1;
             maxlevel_ = -1;
@@ -65,7 +71,16 @@ namespace hnswlib {
             linkLists_ = (char **) malloc(sizeof(void *) * max_elements_);
             if (linkLists_ == nullptr)
                 throw std::runtime_error("Not enough memory: HierarchicalNSW failed to allocate linklists");
-            size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
+
+            // The i-th entry in linkLists array points to max_level[i] (continuous)
+            // chunks of memory, each one looks like this:
+            // -----4------ | -----4*M-------------- | ----8------------------|
+            // <links_len>  | <link_1> <link_2> ...  | <incoming_links_array>
+            // alon: added a dynamic array for the incoming edges which are not outgoing as well.
+            size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint)
+              + sizeof(void *);
+            incoming_links_offset = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
+
             mult_ = 1 / log(1.0 * M_);
             revSize_ = 1.0 / mult_;
         }
@@ -76,6 +91,7 @@ namespace hnswlib {
                 return a.first < b.first;
             }
         };
+
 
         ~HierarchicalNSW() {
 
@@ -115,7 +131,8 @@ namespace hnswlib {
 
         size_t size_links_level0_;
         size_t offsetData_, offsetLevel0_;
-
+        size_t incoming_links_offset0;
+        size_t incoming_links_offset;
 
         char *data_level0_memory_;
         char **linkLists_;
@@ -158,6 +175,18 @@ namespace hnswlib {
             return (int) r;
         }
 
+        void *getIncomingEdgesPtr(tableint internal_id, int level) {
+            if (level == 0) {
+                return (void*) (data_level0_memory_ +
+                                internal_id * size_data_per_element_ +
+                                incoming_links_offset0);
+            }
+            return (void*) (linkLists_[internal_id] +
+            (level - 1) * size_links_per_element_ + incoming_links_offset);
+        }
+        void setIncomingEdgesPtr(tableint internal_id, int level, void *vector_ptr) {
+            memcpy(getIncomingEdgesPtr(internal_id, level), &vector_ptr, sizeof(void*));
+        }
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
         searchBaseLayer(tableint ep_id, const void *data_point, int layer) {
@@ -342,6 +371,8 @@ namespace hnswlib {
             std::priority_queue<std::pair<dist_t, tableint>> queue_closest;
             std::vector<std::pair<dist_t, tableint>> return_list;
             while (top_candidates.size() > 0) {
+                // alon: the distance is saved negatively, so that the queue is ordered
+                // so that first is closer (higher).
                 queue_closest.emplace(-top_candidates.top().first, top_candidates.top().second);
                 top_candidates.pop();
             }
@@ -354,6 +385,9 @@ namespace hnswlib {
                 queue_closest.pop();
                 bool good = true;
 
+                // alon: a candidate is "good" to become a neighbour, unless we find that
+                // another item that was already selected to the neighbours set is closer
+                // to q than the candidate.
                 for (std::pair<dist_t, tableint> second_pair : return_list) {
                     dist_t curdist =
                             fstdistfunc_(getDataByInternalId(second_pair.second),
@@ -407,7 +441,6 @@ namespace hnswlib {
             }
 
             tableint next_closest_entry_point = selectedNeighbors.back();
-
             {
                 linklistsizeint *ll_cur;
                 if (level == 0)
@@ -427,10 +460,11 @@ namespace hnswlib {
                         throw std::runtime_error("Trying to make a link on a non-existent level");
 
                     data[idx] = selectedNeighbors[idx];
-
                 }
+                auto *incoming_edges = new std::vector<tableint>();
+                setIncomingEdgesPtr(cur_c, level, incoming_edges);
             }
-
+            //alon: go over the selected neighbours - selected[idx] is the neighbour id
             for (size_t idx = 0; idx < selectedNeighbors.size(); idx++) {
 
                 std::unique_lock <std::mutex> lock(link_list_locks_[selectedNeighbors[idx]]);
@@ -450,9 +484,12 @@ namespace hnswlib {
                 if (level > element_levels_[selectedNeighbors[idx]])
                     throw std::runtime_error("Trying to make a link on a non-existent level");
 
+                //alon: data is the array of neighbours - for the current neighbour (idx)
                 tableint *data = (tableint *) (ll_other + 1);
 
                 bool is_cur_c_present = false;
+                //alon: it is possible that the "new" node was already the neighbour of idx,
+                // only if it is not an actual new node, but an update.
                 if (isUpdate) {
                     for (size_t j = 0; j < sz_link_list_other; j++) {
                         if (data[j] == cur_c) {
@@ -480,17 +517,80 @@ namespace hnswlib {
                                     fstdistfunc_(getDataByInternalId(data[j]), getDataByInternalId(selectedNeighbors[idx]),
                                                  dist_func_param_), data[j]);
                         }
+                        auto orig_candidates = candidates;
 
+                        // alon: candidates will store the newly selected neighbours for idx.
+                        // it must be a subset of the old neighbours set + the new node (cur_c)
                         getNeighborsByHeuristic2(candidates, Mcurmax);
 
-                        int indx = 0;
-                        while (candidates.size() > 0) {
-                            data[indx] = candidates.top().second;
-                            candidates.pop();
-                            indx++;
+                        // alon: check the diff in the link list, save the neighbours
+                        // that were chosen to be removed, and update the new neighbours
+                        tableint removed_links[sz_link_list_other+1];
+                        size_t removed_idx=0;
+                        size_t link_idx=0;
+
+                        while (orig_candidates.size() > 0) {
+                            if(orig_candidates.top().second !=
+                               candidates.top().second) {
+                                removed_links[removed_idx++] = orig_candidates.top().second;
+                                orig_candidates.pop();
+                            } else {
+                                data[link_idx++] = candidates.top().second;
+                                candidates.pop();
+                                orig_candidates.pop();
+                            }
+                        }
+                        setListCount(ll_other, link_idx);
+                        if (removed_idx+link_idx != sz_link_list_other+1) {
+                            throw std::runtime_error("Error in repairing links");
+                        }
+                        //alon: remove idx from the incoming list of nodes for the
+                        // neighbours that were chosen to remove
+
+                        std::vector<tableint>* neighbour_incoming_edges =
+                          reinterpret_cast<std::vector<tableint>*>(*(void**)getIncomingEdgesPtr(selectedNeighbors[idx], level));
+
+                        for (size_t i=0; i<removed_idx; i++) {
+                            tableint node_id = removed_links[i];
+                            std::vector<tableint>* node_incoming_edges =
+                              reinterpret_cast<std::vector<tableint>*>(*(void**)getIncomingEdgesPtr(node_id, level));
+                            // alon: if we removed cur_c (the node just inserted),
+                            // then it points to neighbour but not vise versa.
+                            if (node_id == cur_c) {
+                                node_incoming_edges->push_back(selectedNeighbors[idx]);
+                                continue;
+                            }
+
+                            // alon: if the node id (the neighbour's neighbour to be removed)
+                            // was pointing to the neighbour, we should insert it to the neighbour's incoming edges.
+                            // otherwise, if the neighbour was saved in the node id incoming
+                            // edges, it should be removed from there.
+                            linklistsizeint *node_id_links;
+                            if (level == 0)
+                                node_id_links = get_linklist0(node_id);
+                            else
+                                node_id_links = get_linklist(node_id, level);
+                            size_t node_id_links_len = getListCount(node_id_links);
+                            tableint *node_id_links_data = (tableint *) (node_id_links + 1);
+
+                            bool was_bidirectional_edge = false;
+                            for (size_t j = 0; j < node_id_links_len; j++) {
+                                if (node_id_links_data[j] == selectedNeighbors[idx]) {
+                                    neighbour_incoming_edges->push_back(node_id);
+                                    was_bidirectional_edge = true;
+                                    break;
+                                }
+                            }
+                            if (was_bidirectional_edge) {
+                                continue;
+                            }
+                            for (size_t j=0; j<node_incoming_edges->size(); j++) {
+                                if ((*node_incoming_edges)[j] == selectedNeighbors[idx]) {
+                                    node_incoming_edges->erase(node_incoming_edges->begin()+j);
+                                }
+                            }
                         }
 
-                        setListCount(ll_other, indx);
                         // Nearest K:
                         /*int indx = -1;
                         for (int j = 0; j < sz_link_list_other; j++) {
@@ -827,6 +927,39 @@ namespace hnswlib {
             addPoint(data_point, label,-1);
         }
 
+        bool removePoint(const labeltype label) {
+            // alon: check that the label actually exist in the graph,
+            // and update the number of elements.
+            tableint element_internal_id = label_lookup_[label];
+            {
+                std::unique_lock<std::mutex> templock_curr(
+                  cur_element_count_guard_);
+                auto search = label_lookup_.find(label);
+                if (search == label_lookup_.end()) {
+                    return false;
+                }
+                // alon: might move this to the end.
+                cur_element_count--;
+                label_lookup_.erase(label);
+                // alon: this will a fragmentation in the internal ids, need to understand the implications
+            }
+            // alon: go over levels from top and repair connections
+            int element_top_level = element_levels_[element_internal_id];
+            for (int level = element_top_level; level > 0; level--) {
+                linklistsizeint *neighbours_list = get_linklist(element_internal_id, level);
+                unsigned short neighbours_count = getListCount(neighbours_list);
+                tableint *neighbours = (tableint *)(neighbours_list + 1);
+
+                // for every neighbour we make a local repair.
+                for (size_t i = 0; i < neighbours_count; i++) {
+                    tableint neighbour_id = neighbours[i];
+                    linklistsizeint *neighbour_neighbours_list = get_linklist(neighbour_id, level);
+                    unsigned short neighbour_neighbours_count = getListCount(neighbour_neighbours_list);
+                    tableint *neighbour_neighbours = (tableint *)(neighbour_neighbours_list + 1);
+                }
+            }
+        }
+
         void updatePoint(const void *dataPoint, tableint internalId, float updateNeighborProbability) {
             // update the feature vector associated with existing point with new vector
             memcpy(getDataByInternalId(internalId), dataPoint, data_size_);
@@ -1007,12 +1140,14 @@ namespace hnswlib {
             // Take update lock to prevent race conditions on an element with insertion/update at the same time.
             std::unique_lock <std::mutex> lock_el_update(link_list_update_locks_[(cur_c & (max_update_element_locks - 1))]);
             std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
-            int curlevel = getRandomLevel(mult_);
-            if (level > 0)
-                curlevel = level;
+            int curlevel = level;
+            // alon: At first, level equals -1, so we use the random level we got to begin with.
+            // (not clear why this condition exist)
+            if (level == -1)
+                curlevel = getRandomLevel(mult_);
 
+            // alon: Update the top level in graph that contains the element.
             element_levels_[cur_c] = curlevel;
-
 
             std::unique_lock <std::mutex> templock(global);
             int maxlevelcopy = maxlevel_;
@@ -1029,6 +1164,8 @@ namespace hnswlib {
             memcpy(getDataByInternalId(cur_c), data_point, data_size_);
 
 
+
+
             if (curlevel) {
                 linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
                 if (linkLists_[cur_c] == nullptr)
@@ -1036,6 +1173,7 @@ namespace hnswlib {
                 memset(linkLists_[cur_c], 0, size_links_per_element_ * curlevel + 1);
             }
 
+            // alon: this condition only means that we are not inserting the first element.
             if ((signed)currObj != -1) {
 
                 if (curlevel < maxlevelcopy) {
@@ -1043,7 +1181,11 @@ namespace hnswlib {
                     dist_t curdist = fstdistfunc_(data_point, getDataByInternalId(currObj), dist_func_param_);
                     for (int level = maxlevelcopy; level > curlevel; level--) {
 
-
+                        // alon: this is done for the levels which are above the max level
+                        // to which we are going to insert the new element. We do
+                        // a greedy search in the graph starting from the entry point
+                        // at each level, and move on with the closest element we can find.
+                        // When there is no improvment to do, we take a step down.
                         bool changed = true;
                         while (changed) {
                             changed = false;
@@ -1088,13 +1230,17 @@ namespace hnswlib {
                 // Do nothing for the first element
                 enterpoint_node_ = 0;
                 maxlevel_ = curlevel;
-
             }
 
             //Releasing lock for the maximum level
             if (curlevel > maxlevelcopy) {
                 enterpoint_node_ = cur_c;
                 maxlevel_ = curlevel;
+                //alon: create the incoming edges vector for the new levels.
+                for(size_t level_idx = maxlevelcopy+1; level_idx <= curlevel; level_idx++) {
+                    auto* incoming_edges = new std::vector<tableint>();
+                    setIncomingEdgesPtr(cur_c, level_idx, incoming_edges);
+                }
             }
             return cur_c;
         };
@@ -1157,6 +1303,7 @@ namespace hnswlib {
 
         void checkIntegrity(){
             int connections_checked=0;
+            int double_connections=0;
             std::vector <int > inbound_connections_num(cur_element_count,0);
             for(int i = 0;i < cur_element_count; i++){
                 for(int l = 0;l <= element_levels_[i]; l++){
@@ -1165,21 +1312,32 @@ namespace hnswlib {
                     tableint *data = (tableint *) (ll_cur + 1);
                     std::unordered_set<tableint> s;
                     for (int j=0; j<size; j++){
-                        assert(data[j] > 0);
+                        assert(data[j] >= 0);
                         assert(data[j] < cur_element_count);
                         assert (data[j] != i);
                         inbound_connections_num[data[j]]++;
                         s.insert(data[j]);
                         connections_checked++;
-
+                        // alon: check if this is bi directional
+                        linklistsizeint *ll_other = get_linklist_at_level(data[j],l);
+                        int size_other = getListCount(ll_other);
+                        tableint *data_other = (tableint *) (ll_other + 1);
+                        for (int r=0; r<size_other; r++) {
+                            if (data_other[r] == (tableint)i) {
+                                double_connections++;
+                                break;
+                            }
+                        }
                     }
                     assert(s.size() == size);
                 }
             }
+            std::cout << "connections: " << connections_checked;
+            std::cout << " double connections: " << double_connections << std::endl;
             if(cur_element_count > 1){
                 int min1=inbound_connections_num[0], max1=inbound_connections_num[0];
                 for(int i=0; i < cur_element_count; i++){
-                    assert(inbound_connections_num[i] > 0);
+                    //assert(inbound_connections_num[i] > 0);
                     min1=std::min(inbound_connections_num[i],min1);
                     max1=std::max(inbound_connections_num[i],max1);
                 }
