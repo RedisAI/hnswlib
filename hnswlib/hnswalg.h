@@ -137,6 +137,7 @@ namespace hnswlib {
         char *data_level0_memory_;
         char **linkLists_;
         std::vector<int> element_levels_;
+        std::set<tableint> available_ids;
 
         size_t data_size_;
 
@@ -184,8 +185,8 @@ namespace hnswlib {
             return (void*) (linkLists_[internal_id] +
             (level - 1) * size_links_per_element_ + incoming_links_offset);
         }
-        void setIncomingEdgesPtr(tableint internal_id, int level, void *vector_ptr) {
-            memcpy(getIncomingEdgesPtr(internal_id, level), &vector_ptr, sizeof(void*));
+        void setIncomingEdgesPtr(tableint internal_id, int level, void *set_ptr) {
+            memcpy(getIncomingEdgesPtr(internal_id, level), &set_ptr, sizeof(void*));
         }
 
         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst>
@@ -461,7 +462,7 @@ namespace hnswlib {
 
                     data[idx] = selectedNeighbors[idx];
                 }
-                auto *incoming_edges = new std::vector<tableint>();
+                auto *incoming_edges = new std::set<tableint>();
                 setIncomingEdgesPtr(cur_c, level, incoming_edges);
             }
             //alon: go over the selected neighbours - selected[idx] is the neighbour id
@@ -547,47 +548,33 @@ namespace hnswlib {
                         //alon: remove idx from the incoming list of nodes for the
                         // neighbours that were chosen to remove
 
-                        std::vector<tableint>* neighbour_incoming_edges =
-                          reinterpret_cast<std::vector<tableint>*>(*(void**)getIncomingEdgesPtr(selectedNeighbors[idx], level));
+                        std::set<tableint>* neighbour_incoming_edges =
+                          reinterpret_cast<std::set<tableint>*>(*(void**)getIncomingEdgesPtr(selectedNeighbors[idx], level));
 
                         for (size_t i=0; i<removed_idx; i++) {
                             tableint node_id = removed_links[i];
-                            std::vector<tableint>* node_incoming_edges =
-                              reinterpret_cast<std::vector<tableint>*>(*(void**)getIncomingEdgesPtr(node_id, level));
+                            std::set<tableint>* node_incoming_edges =
+                              reinterpret_cast<std::set<tableint>*>(*(void**) getIncomingEdgesPtr(
+                                node_id, level));
                             // alon: if we removed cur_c (the node just inserted),
                             // then it points to neighbour but not vise versa.
-                            if (node_id == cur_c) {
-                                node_incoming_edges->push_back(selectedNeighbors[idx]);
+                            if(node_id == cur_c) {
+                                node_incoming_edges->insert(
+                                  selectedNeighbors[idx]);
                                 continue;
                             }
 
                             // alon: if the node id (the neighbour's neighbour to be removed)
-                            // was pointing to the neighbour, we should insert it to the neighbour's incoming edges.
-                            // otherwise, if the neighbour was saved in the node id incoming
-                            // edges, it should be removed from there.
-                            linklistsizeint *node_id_links;
-                            if (level == 0)
-                                node_id_links = get_linklist0(node_id);
-                            else
-                                node_id_links = get_linklist(node_id, level);
-                            size_t node_id_links_len = getListCount(node_id_links);
-                            tableint *node_id_links_data = (tableint *) (node_id_links + 1);
-
-                            bool was_bidirectional_edge = false;
-                            for (size_t j = 0; j < node_id_links_len; j++) {
-                                if (node_id_links_data[j] == selectedNeighbors[idx]) {
-                                    neighbour_incoming_edges->push_back(node_id);
-                                    was_bidirectional_edge = true;
-                                    break;
-                                }
-                            }
-                            if (was_bidirectional_edge) {
-                                continue;
-                            }
-                            for (size_t j=0; j<node_incoming_edges->size(); j++) {
-                                if ((*node_incoming_edges)[j] == selectedNeighbors[idx]) {
-                                    node_incoming_edges->erase(node_incoming_edges->begin()+j);
-                                }
+                            // wasn't pointing to the neighbour (i.e., the edge was one directional),
+                            // we should remove from the node's incoming edges.
+                            // otherwise, the edge turned from bidirectional to
+                            // one directional, so we insert it to the neighbour's
+                            // incoming edges set.
+                            if (node_incoming_edges->find(selectedNeighbors[idx])
+                            != node_incoming_edges->end()) {
+                                node_incoming_edges->erase(selectedNeighbors[idx]);
+                            } else {
+                                neighbour_incoming_edges->insert(node_id);
                             }
                         }
 
@@ -616,6 +603,8 @@ namespace hnswlib {
         void setEf(size_t ef) {
             ef_ = ef;
         }
+
+
 
 
         std::priority_queue<std::pair<dist_t, tableint>> searchKnnInternal(void *query_data, int k) {
@@ -927,10 +916,94 @@ namespace hnswlib {
             addPoint(data_point, label,-1);
         }
 
+        void repairConnectionsForDeletion(tableint element_internal_id, tableint neighbour_id,
+          tableint *neighbours_list, tableint *neighbour_neighbours_list, int level){
+
+            // alon: put the deleted element's neighbours in the candidates.
+            std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
+            std::set<tableint> candidates_set;
+            unsigned short neighbours_count = getListCount(neighbours_list);
+            tableint *neighbours = (tableint *)(neighbours_list + 1);
+            for (size_t j = 0; j < neighbours_count; j++) {
+                if (neighbours[j] == neighbour_id) {
+                    continue;
+                }
+                candidates.emplace(
+                  fstdistfunc_(getDataByInternalId(neighbours[j]), getDataByInternalId(element_internal_id),
+                    dist_func_param_), neighbours[j]);
+                candidates_set.insert(neighbours[j]);
+            }
+
+            unsigned short neighbour_neighbours_count = getListCount(neighbour_neighbours_list);
+            tableint *neighbour_neighbours = (tableint *)(neighbours_list + 1);
+            for (size_t j = 0; j < neighbour_neighbours_count; j++) {
+                if (candidates_set.find(neighbour_neighbours[j]) != candidates_set.end() ||
+                  neighbour_neighbours[j] == element_internal_id) {
+                    continue;
+                }
+                candidates.emplace(fstdistfunc_(getDataByInternalId(neighbour_id),
+                  getDataByInternalId(neighbour_neighbours[j]), dist_func_param_),
+                    neighbours[j]);
+            }
+
+            auto orig_candidates = candidates;
+            size_t Mcurmax = level ? maxM_ : maxM0_;
+
+            // alon: candidates will store the newly selected neighbours for neighbour_id.
+            // it must be a subset of the old neighbours set + the element to removed neighbours set.
+            getNeighborsByHeuristic2(candidates, Mcurmax);
+
+            // alon: check the diff in the link list, save the neighbours
+            // that were chosen to be removed, and update the new neighbours
+            tableint removed_links[neighbour_neighbours_count];
+            size_t removed_idx=0;
+            size_t link_idx=0;
+
+            while (orig_candidates.size() > 0) {
+                if(orig_candidates.top().second !=
+                   candidates.top().second) {
+                    removed_links[removed_idx++] = orig_candidates.top().second;
+                    orig_candidates.pop();
+                } else {
+                    neighbour_neighbours[link_idx++] = candidates.top().second;
+                    candidates.pop();
+                    orig_candidates.pop();
+                }
+            }
+            setListCount(neighbour_neighbours, link_idx);
+            if (removed_idx+link_idx != candidates_set.size()) {
+                throw std::runtime_error("Error in repairing links");
+            }
+
+            //alon: remove neighbour id from the incoming list of nodes for his
+            // neighbours that were chosen to remove
+            std::set<tableint>* neighbour_incoming_edges =
+              reinterpret_cast<std::set<tableint>*>(*(void**)getIncomingEdgesPtr(neighbour_id, level));
+
+            for (size_t i=0; i<removed_idx; i++) {
+                tableint node_id = removed_links[i];
+                std::set<tableint>* node_incoming_edges =
+                  reinterpret_cast<std::set<tableint>*>(*(void**) getIncomingEdgesPtr(
+                    node_id, level));
+
+                // alon: if the node id (the neighbour's neighbour to be removed)
+                // wasn't pointing to the neighbour (edge was one directional),
+                // we should remove it from the nodes's incoming edges.
+                // otherwise, edge turned from bidirectional to one directional,
+                // and it should be saved in the neighbours id incoming edges.
+                if(node_incoming_edges->find(neighbour_id) !=
+                   node_incoming_edges->end()) {
+                    node_incoming_edges->erase(neighbour_id);
+                } else {
+                    neighbour_incoming_edges->insert(node_id);
+                }
+            }
+        }
+
         bool removePoint(const labeltype label) {
             // alon: check that the label actually exist in the graph,
             // and update the number of elements.
-            tableint element_internal_id = label_lookup_[label];
+            tableint element_internal_id;
             {
                 std::unique_lock<std::mutex> templock_curr(
                   cur_element_count_guard_);
@@ -938,26 +1011,49 @@ namespace hnswlib {
                 if (search == label_lookup_.end()) {
                     return false;
                 }
-                // alon: might move this to the end.
+                tableint element_internal_id = label_lookup_[label];
+                // alon: add the element id to the available ids for future reuse.
                 cur_element_count--;
                 label_lookup_.erase(label);
-                // alon: this will a fragmentation in the internal ids, need to understand the implications
+                available_ids.insert(element_internal_id);
             }
+
             // alon: go over levels from top and repair connections
             int element_top_level = element_levels_[element_internal_id];
-            for (int level = element_top_level; level > 0; level--) {
-                linklistsizeint *neighbours_list = get_linklist(element_internal_id, level);
+            for (int level = element_top_level; level >= 0; level--) {
+                linklistsizeint *neighbours_list = get_linklist_at_level(element_internal_id, level);
                 unsigned short neighbours_count = getListCount(neighbours_list);
                 tableint *neighbours = (tableint *)(neighbours_list + 1);
 
-                // for every neighbour we make a local repair.
+                // alon: go over the neighbours that also points back to the removed point
+                // and make a local repair.
                 for (size_t i = 0; i < neighbours_count; i++) {
                     tableint neighbour_id = neighbours[i];
-                    linklistsizeint *neighbour_neighbours_list = get_linklist(neighbour_id, level);
+                    linklistsizeint *neighbour_neighbours_list = get_linklist_at_level(neighbour_id, level);
                     unsigned short neighbour_neighbours_count = getListCount(neighbour_neighbours_list);
                     tableint *neighbour_neighbours = (tableint *)(neighbour_neighbours_list + 1);
+                    for (size_t j = 0; j< neighbour_neighbours_count; j++) {
+                        // alon: if the edge is bidirectional, do repair
+                        if (neighbour_neighbours[j] == element_internal_id) {
+                            // todo: test
+                            repairConnectionsForDeletion(element_internal_id,
+                              neighbour_id, neighbours_list, neighbour_neighbours_list, level);
+                            break;
+                        }
+                    }
+                }
+                std::set<tableint>* incoming_edges =
+                  reinterpret_cast<std::set<tableint>*>(*(void**)getIncomingEdgesPtr(element_internal_id, level));
+                for (auto incoming_edge: *incoming_edges) {
+                    linklistsizeint *incoming_node_neighbours_list = get_linklist_at_level(incoming_edge, level);
+                    unsigned short incoming_node_neighbours_count = getListCount(incoming_node_neighbours_list);
+                    tableint *incoming_node_neighbours = (tableint *)(incoming_node_neighbours_list + 1);
+                    //todo: test
+                    repairConnectionsForDeletion(element_internal_id, incoming_edge,
+                      neighbours_list, incoming_node_neighbours_list, level);
                 }
             }
+            return true;
         }
 
         void updatePoint(const void *dataPoint, tableint internalId, float updateNeighborProbability) {
@@ -1132,7 +1228,13 @@ namespace hnswlib {
                     throw std::runtime_error("The number of elements exceeds the specified limit");
                 };
 
-                cur_c = cur_element_count;
+                if (available_ids.size() == 0) {
+                    cur_c = cur_element_count;
+                } else {
+                    cur_c = *available_ids.begin();
+                    available_ids.erase(available_ids.begin());
+                }
+
                 cur_element_count++;
                 label_lookup_[label] = cur_c;
             }
@@ -1236,9 +1338,9 @@ namespace hnswlib {
             if (curlevel > maxlevelcopy) {
                 enterpoint_node_ = cur_c;
                 maxlevel_ = curlevel;
-                //alon: create the incoming edges vector for the new levels.
+                //alon: create the incoming edges set for the new levels.
                 for(size_t level_idx = maxlevelcopy+1; level_idx <= curlevel; level_idx++) {
-                    auto* incoming_edges = new std::vector<tableint>();
+                    auto* incoming_edges = new std::set<tableint>();
                     setIncomingEdgesPtr(cur_c, level_idx, incoming_edges);
                 }
             }
