@@ -785,6 +785,9 @@ namespace hnswlib {
             }
             markDeletedInternal(search->second);
         }
+        void removePoint(labeltype label) {
+            markDelete(label);
+        }
 
         /**
          * Uses the first 8 bits of the memory for the linked list to store the mark,

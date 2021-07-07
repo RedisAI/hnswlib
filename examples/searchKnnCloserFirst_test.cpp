@@ -17,7 +17,7 @@ using idx_t = hnswlib::labeltype;
 
 void test() {
     int d = 4;
-    idx_t n = 100;
+    idx_t n = 10000;
     idx_t nq = 10;
     size_t k = 10;
    
@@ -40,10 +40,20 @@ void test() {
     hnswlib::AlgorithmInterface<float>* alg_brute  = new hnswlib::BruteforceSearch<float>(&space, 2 * n);
     hnswlib::AlgorithmInterface<float>* alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, 2 * n);
 
+    auto start = std::chrono::high_resolution_clock::now();
+
     for (size_t i = 0; i < n; ++i) {
         alg_brute->addPoint(data.data() + d * i, i);
         alg_hnsw->addPoint(data.data() + d * i, i);
+        if (i%9 == 0) {
+            int label = distrib(rng)*i;
+            alg_brute->removePoint(label);
+            alg_hnsw->removePoint(label);
+        }
     }
+    auto elapsed = std::chrono::high_resolution_clock::now() - start;
+    long long microseconds = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+    std::cout << "total time in milliseconds: " << microseconds << std::endl;
 
     // test searchKnnCloserFirst of BruteforceSearch
     for (size_t j = 0; j < nq; ++j) {
