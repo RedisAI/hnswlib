@@ -46,6 +46,11 @@ void test() {
     for (size_t i = 0; i < n; ++i) {
         alg_brute->addPoint(data.data() + d * i, i);
         alg_hnsw->addPoint(data.data() + d * i, i);
+        if (i%10 == 9) {
+            int label = distrib(rng) * i;
+            alg_brute->removePoint(label);
+            alg_hnsw->removePoint(label);
+        }
     }
     alg_hnsw->checkIntegrity();
     std::cout << "finish building index" << std::endl;

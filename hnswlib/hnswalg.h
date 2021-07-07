@@ -559,8 +559,7 @@ namespace hnswlib {
                             // alon: if we removed cur_c (the node just inserted),
                             // then it points to neighbour but not vise versa.
                             if(node_id == cur_c) {
-                                node_incoming_edges->insert(
-                                  selectedNeighbors[idx]);
+                                neighbour_incoming_edges->insert(cur_c);
                                 continue;
                             }
 
@@ -929,23 +928,25 @@ namespace hnswlib {
                     continue;
                 }
                 candidates.emplace(
-                  fstdistfunc_(getDataByInternalId(neighbours[j]), getDataByInternalId(element_internal_id),
+                  fstdistfunc_(getDataByInternalId(neighbours[j]), getDataByInternalId(neighbour_id),
                     dist_func_param_), neighbours[j]);
                 candidates_set.insert(neighbours[j]);
             }
-
+            std::set<tableint> neighbour_orig_neighbours_set;
             unsigned short neighbour_neighbours_count = getListCount(neighbour_neighbours_list);
-            tableint *neighbour_neighbours = (tableint *)(neighbours_list + 1);
+            tableint *neighbour_neighbours = (tableint *)(neighbour_neighbours_list + 1);
             for (size_t j = 0; j < neighbour_neighbours_count; j++) {
+                neighbour_orig_neighbours_set.insert(neighbour_neighbours[j]);
                 if (candidates_set.find(neighbour_neighbours[j]) != candidates_set.end() ||
                   neighbour_neighbours[j] == element_internal_id) {
                     continue;
                 }
                 candidates.emplace(fstdistfunc_(getDataByInternalId(neighbour_id),
                   getDataByInternalId(neighbour_neighbours[j]), dist_func_param_),
-                    neighbours[j]);
+                  neighbour_neighbours[j]);
             }
 
+            int total_candidates = candidates.size();
             auto orig_candidates = candidates;
             size_t Mcurmax = level ? maxM_ : maxM0_;
 
@@ -962,7 +963,10 @@ namespace hnswlib {
             while (orig_candidates.size() > 0) {
                 if(orig_candidates.top().second !=
                    candidates.top().second) {
-                    removed_links[removed_idx++] = orig_candidates.top().second;
+                    if (neighbour_orig_neighbours_set.find(orig_candidates.top().second)
+                    != neighbour_orig_neighbours_set.end()) {
+                        removed_links[removed_idx++] = orig_candidates.top().second;
+                    }
                     orig_candidates.pop();
                 } else {
                     neighbour_neighbours[link_idx++] = candidates.top().second;
@@ -970,10 +974,7 @@ namespace hnswlib {
                     orig_candidates.pop();
                 }
             }
-            setListCount(neighbour_neighbours, link_idx);
-            if (removed_idx+link_idx != candidates_set.size()) {
-                throw std::runtime_error("Error in repairing links");
-            }
+            setListCount(neighbour_neighbours_list, link_idx);
 
             //alon: remove neighbour id from the incoming list of nodes for his
             // neighbours that were chosen to remove
@@ -998,6 +999,32 @@ namespace hnswlib {
                     neighbour_incoming_edges->insert(node_id);
                 }
             }
+            //alon: need updates for the new edges created
+            for (size_t i=0; i<link_idx; i++) {
+                tableint node_id = neighbour_neighbours[i];
+                if (neighbour_orig_neighbours_set.find(node_id) == neighbour_orig_neighbours_set.end()) {
+                    std::set<tableint>* node_incoming_edges =
+                      reinterpret_cast<std::set<tableint>*>(*(void**) getIncomingEdgesPtr(
+                        node_id, level));
+                    //alon: if the node has an edge to the neighbour as well, remove it
+                    //from the incoming nodes of the neighbour
+                    //otherwise, need to update the edge as incoming.
+                    linklistsizeint *node_links_list = get_linklist_at_level(node_id, level);
+                    unsigned short node_links_size = getListCount(node_links_list);
+                    tableint *node_links = (tableint *)(node_links_list +1);
+                    bool bidirectional_edge = false;
+                    for (size_t j=0; j<node_links_size; j++) {
+                        if (node_links[j] == neighbour_id) {
+                            neighbour_incoming_edges->erase(node_id);
+                            bidirectional_edge = true;
+                            break;
+                        }
+                    }
+                    if (!bidirectional_edge) {
+                        node_incoming_edges->insert(neighbour_id);
+                    }
+                }
+            }
         }
 
         bool removePoint(const labeltype label) {
@@ -1011,7 +1038,7 @@ namespace hnswlib {
                 if (search == label_lookup_.end()) {
                     return false;
                 }
-                tableint element_internal_id = label_lookup_[label];
+                element_internal_id = label_lookup_[label];
                 // alon: add the element id to the available ids for future reuse.
                 cur_element_count--;
                 label_lookup_.erase(label);
@@ -1053,6 +1080,7 @@ namespace hnswlib {
                       neighbours_list, incoming_node_neighbours_list, level);
                 }
             }
+            memset(data_level0_memory_ + element_internal_id * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
             return true;
         }
 
@@ -1415,7 +1443,7 @@ namespace hnswlib {
                     std::unordered_set<tableint> s;
                     for (int j=0; j<size; j++){
                         assert(data[j] >= 0);
-                        assert(data[j] < cur_element_count);
+                        assert(data[j] <= cur_element_count);
                         assert (data[j] != i);
                         inbound_connections_num[data[j]]++;
                         s.insert(data[j]);
