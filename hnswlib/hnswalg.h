@@ -106,6 +106,7 @@ namespace hnswlib {
 
         size_t max_elements_;
         size_t cur_element_count;
+        size_t max_id;
         size_t size_data_per_element_;
         size_t size_links_per_element_;
 
@@ -1059,14 +1060,20 @@ namespace hnswlib {
                     linklistsizeint *neighbour_neighbours_list = get_linklist_at_level(neighbour_id, level);
                     unsigned short neighbour_neighbours_count = getListCount(neighbour_neighbours_list);
                     tableint *neighbour_neighbours = (tableint *)(neighbour_neighbours_list + 1);
+                    bool bidirectional_edge = false;
                     for (size_t j = 0; j< neighbour_neighbours_count; j++) {
                         // alon: if the edge is bidirectional, do repair
                         if (neighbour_neighbours[j] == element_internal_id) {
-                            // todo: test
+                            bidirectional_edge = true;
                             repairConnectionsForDeletion(element_internal_id,
                               neighbour_id, neighbours_list, neighbour_neighbours_list, level);
                             break;
                         }
+                    }
+                    if (!bidirectional_edge) {
+                        std::set<tableint>* neighbour_incoming_edges =
+                          reinterpret_cast<std::set<tableint>*>(*(void**)getIncomingEdgesPtr(neighbour_id, level));
+                        neighbour_incoming_edges->erase(element_internal_id);
                     }
                 }
                 std::set<tableint>* incoming_edges =
@@ -1079,6 +1086,26 @@ namespace hnswlib {
                     repairConnectionsForDeletion(element_internal_id, incoming_edge,
                       neighbours_list, incoming_node_neighbours_list, level);
                 }
+                delete incoming_edges;
+            }
+            if (element_internal_id==enterpoint_node_) {
+                linklistsizeint *top_level_list = get_linklist_at_level(element_internal_id, element_top_level);
+                unsigned short list_len = getListCount(top_level_list);
+                if (list_len > 0) {
+                    enterpoint_node_= ((tableint *)(top_level_list+1))[0];
+                } else {
+                    top_level_list = get_linklist_at_level(element_internal_id, element_levels_[element_internal_id]-1);
+                    list_len = getListCount(top_level_list);
+                    if(list_len>0) {
+                        enterpoint_node_= ((tableint *)(top_level_list+1))[0];
+                        maxlevel_ = element_top_level-1;
+                    } else {
+                        throw std::runtime_error("error when deleting entry point");
+                    }
+                }
+            }
+            if (element_levels_[element_internal_id] > 0) {
+                free(linkLists_[element_internal_id]);
             }
             memset(data_level0_memory_ + element_internal_id * size_data_per_element_ + offsetLevel0_, 0, size_data_per_element_);
             return true;
@@ -1258,6 +1285,7 @@ namespace hnswlib {
 
                 if (available_ids.size() == 0) {
                     cur_c = cur_element_count;
+                    max_id = cur_element_count;
                 } else {
                     cur_c = *available_ids.begin();
                     available_ids.erase(available_ids.begin());
@@ -1434,18 +1462,21 @@ namespace hnswlib {
         void checkIntegrity(){
             int connections_checked=0;
             int double_connections=0;
-            std::vector <int > inbound_connections_num(cur_element_count,0);
-            for(int i = 0;i < cur_element_count; i++){
+            std::vector <int > inbound_connections_num(max_id,0);
+            for(int i = 0;i <= max_id; i++){
+                if (available_ids.find(i) != available_ids.end()) {
+                    continue;
+                }
                 for(int l = 0;l <= element_levels_[i]; l++){
                     linklistsizeint *ll_cur = get_linklist_at_level(i,l);
                     int size = getListCount(ll_cur);
                     tableint *data = (tableint *) (ll_cur + 1);
-                    std::unordered_set<tableint> s;
+                    std::set<tableint> s;
                     for (int j=0; j<size; j++){
                         assert(data[j] >= 0);
                         assert(data[j] <= cur_element_count);
                         assert (data[j] != i);
-                        inbound_connections_num[data[j]]++;
+                        //inbound_connections_num[data[j]]++;
                         s.insert(data[j]);
                         connections_checked++;
                         // alon: check if this is bi directional
@@ -1466,12 +1497,15 @@ namespace hnswlib {
             std::cout << " double connections: " << double_connections << std::endl;
             if(cur_element_count > 1){
                 int min1=inbound_connections_num[0], max1=inbound_connections_num[0];
-                for(int i=0; i < cur_element_count; i++){
+                for(int i=0; i <= max_id; i++){
+                    if (available_ids.find(i) != available_ids.end()) {
+                        continue;
+                    }
                     //assert(inbound_connections_num[i] > 0);
-                    min1=std::min(inbound_connections_num[i],min1);
-                    max1=std::max(inbound_connections_num[i],max1);
+                    //min1=std::min(inbound_connections_num[i],min1);
+                    //max1=std::max(inbound_connections_num[i],max1);
                 }
-                std::cout << "Min inbound: " << min1 << ", Max inbound:" << max1 << "\n";
+                //std::cout << "Min inbound: " << min1 << ", Max inbound:" << max1 << "\n";
             }
             std::cout << "integrity ok, checked " << connections_checked << " connections\n";
 

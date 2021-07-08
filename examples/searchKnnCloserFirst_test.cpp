@@ -19,9 +19,9 @@ void test() {
     int d = 128;
     idx_t n = 10000;
     idx_t nq = 10;
-    size_t M = 20;
+    size_t M = 16;
     size_t ef_construction = 200;
-    size_t ef = 200;
+    size_t ef = 100;
     size_t k = 10;
    
     std::vector<float> data(n * d);
@@ -43,6 +43,7 @@ void test() {
     hnswlib::AlgorithmInterface<float>* alg_brute  = new hnswlib::BruteforceSearch<float>(&space, 2 * n);
     hnswlib::AlgorithmInterface<float>* alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, 2 * n, M, ef_construction, ef);
 
+    auto start = std::chrono::high_resolution_clock::now();
     for (size_t i = 0; i < n; ++i) {
         alg_brute->addPoint(data.data() + d * i, i);
         alg_hnsw->addPoint(data.data() + d * i, i);
@@ -52,10 +53,15 @@ void test() {
             alg_hnsw->removePoint(label);
         }
     }
+    auto elapsed = std::chrono::high_resolution_clock::now() - start;
+    long long microseconds = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+    std::cout << "total build time in microseconds: " << microseconds << std::endl;
+
     alg_hnsw->checkIntegrity();
     std::cout << "finish building index" << std::endl;
 
     // test searchKnnCloserFirst of BruteforceSearch
+    microseconds=0;
     size_t total_correct = 0;
     for (size_t j = 0; j < nq; ++j) {
         const void* p = query.data() + j * d;
@@ -68,7 +74,10 @@ void test() {
             gd.pop();
         }
         size_t correct = 0;
+        start = std::chrono::high_resolution_clock::now();
         auto hnsw_res = alg_hnsw->searchKnnCloserFirst(p, k);
+        elapsed = std::chrono::high_resolution_clock::now() - start;
+        microseconds += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
         for (auto res : hnsw_res) {
             for (auto expect_res : bf_res) {
                 if (res.second == expect_res.second) {
@@ -80,6 +89,7 @@ void test() {
         std::cout << "correct: " << correct << " out of " << k << std::endl;
         total_correct+=correct;
     }
+    std::cout << "total search time in microseconds: " << microseconds << std::endl;
     std::cout << "recall is: " << float(total_correct)/(k*nq) << std::endl;
 
     for (size_t j = 0; j < nq; ++j) {
