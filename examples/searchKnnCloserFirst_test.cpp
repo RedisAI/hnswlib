@@ -17,7 +17,7 @@ using idx_t = hnswlib::labeltype;
 
 void test() {
     int d = 4;
-    idx_t n = 10000;
+    idx_t n = 100000;
     idx_t nq = 10;
     size_t k = 10;
    
@@ -45,7 +45,7 @@ void test() {
     for (size_t i = 0; i < n; ++i) {
         alg_brute->addPoint(data.data() + d * i, i);
         alg_hnsw->addPoint(data.data() + d * i, i);
-        if (i%9 == 0) {
+        if (i%10 == 9) {
             int label = distrib(rng)*i;
             alg_brute->removePoint(label);
             alg_hnsw->removePoint(label);
@@ -53,20 +53,42 @@ void test() {
     }
     auto elapsed = std::chrono::high_resolution_clock::now() - start;
     long long microseconds = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-    std::cout << "total time in milliseconds: " << microseconds << std::endl;
+    std::cout << "total build time in microseconds: " << microseconds << std::endl;
+
+    std::cout << "finish building index" << std::endl;
 
     // test searchKnnCloserFirst of BruteforceSearch
+    microseconds=0;
+    size_t total_correct = 0;
     for (size_t j = 0; j < nq; ++j) {
         const void* p = query.data() + j * d;
         auto gd = alg_brute->searchKnn(p, k);
-        auto res = alg_brute->searchKnnCloserFirst(p, k);
-        assert(gd.size() == res.size());
+        auto bf_res = alg_brute->searchKnnCloserFirst(p, k);
+        assert(gd.size() == bf_res.size());
         size_t t = gd.size();
         while (!gd.empty()) {
-            assert(gd.top() == res[--t]);
+            assert(gd.top() == bf_res[--t]);
             gd.pop();
         }
+        size_t correct = 0;
+        start = std::chrono::high_resolution_clock::now();
+        auto hnsw_res = alg_hnsw->searchKnnCloserFirst(p, k);
+        elapsed = std::chrono::high_resolution_clock::now() - start;
+        microseconds += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+        for (auto res : hnsw_res) {
+            for (auto expect_res : bf_res) {
+                if (res.second == expect_res.second) {
+                    correct++;
+                    break;
+                }
+            }
+        }
+        std::cout << "correct: " << correct << " out of " << k << std::endl;
+        total_correct+=correct;
     }
+    std::cout << "total search time in microseconds: " << microseconds << std::endl;
+    std::cout << "recall is: " << float(total_correct)/(k*nq) << std::endl;
+
     for (size_t j = 0; j < nq; ++j) {
         const void* p = query.data() + j * d;
         auto gd = alg_hnsw->searchKnn(p, k);
@@ -78,7 +100,6 @@ void test() {
             gd.pop();
         }
     }
-    
     delete alg_brute;
     delete alg_hnsw;
 }
