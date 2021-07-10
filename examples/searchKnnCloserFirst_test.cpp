@@ -103,7 +103,7 @@ void test() {
             gd.pop();
         }
     }
-    
+
     delete alg_brute;
     delete alg_hnsw;
 }
