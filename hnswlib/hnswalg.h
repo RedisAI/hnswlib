@@ -95,10 +95,17 @@ namespace hnswlib {
 
         ~HierarchicalNSW() {
 
-            free(data_level0_memory_);
-            for (tableint i = 0; i < cur_element_count; i++) {
-                if (element_levels_[i] > 0)
-                    free(linkLists_[i]);
+
+            for (tableint id = 0; id < max_id; id++) {
+                if (available_ids.find(id) != available_ids.end()) {
+                    continue;
+                }
+                for (size_t level = 0; level <= element_levels_[id]; level++) {
+                    delete reinterpret_cast<std::set<tableint>*>(*(void**)getIncomingEdgesPtr(id, level));
+                }
+
+                if (element_levels_[id] > 0)
+                    free(linkLists_[id]);
             }
             free(linkLists_);
             delete visited_list_pool_;

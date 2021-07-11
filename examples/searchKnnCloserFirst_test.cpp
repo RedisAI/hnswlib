@@ -15,13 +15,13 @@ namespace
 
 using idx_t = hnswlib::labeltype;
 
-void test() {
-    int d = 128;
-    idx_t n = 10000;
+void test(int d) {
+    idx_t n = 1000000;
+    if (d > 1000) n/=10;
     idx_t nq = 10;
     size_t M = 16;
     size_t ef_construction = 200;
-    size_t ef = 100;
+    size_t ef = 10;
     size_t k = 10;
    
     std::vector<float> data(n * d);
@@ -43,25 +43,37 @@ void test() {
     hnswlib::AlgorithmInterface<float>* alg_brute  = new hnswlib::BruteforceSearch<float>(&space, 2 * n);
     hnswlib::AlgorithmInterface<float>* alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, 2 * n, M, ef_construction, ef);
 
-    auto start = std::chrono::high_resolution_clock::now();
+
+    long long insert_duration = 0;
+    long long remove_duration = 0;
+    long long total_duration = 0;
+
     for (size_t i = 0; i < n; ++i) {
         alg_brute->addPoint(data.data() + d * i, i);
+
+        auto start = std::chrono::high_resolution_clock::now();
         alg_hnsw->addPoint(data.data() + d * i, i);
-        if (i%10 == 9) {
-            int label = distrib(rng) * i;
+        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+        insert_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+
+        if (i > n/2 && i%10 == 0) {
+            int label = distrib(rng)*i;
             alg_brute->removePoint(label);
+
+            start = std::chrono::high_resolution_clock::now();
             alg_hnsw->removePoint(label);
+            elapsed = std::chrono::high_resolution_clock::now() - start;
+            remove_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
         }
     }
-    auto elapsed = std::chrono::high_resolution_clock::now() - start;
-    long long microseconds = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-    std::cout << "total build time in microseconds: " << microseconds << std::endl;
 
-    alg_hnsw->checkIntegrity();
-    std::cout << "finish building index" << std::endl;
+    total_duration = insert_duration + remove_duration;
+    std::cout << "total insert time in microseconds: " << insert_duration << std::endl;
+    std::cout << "total remove time in microseconds: " << remove_duration << std::endl;
+    std::cout << "total build time in microseconds: " << total_duration << std::endl;
 
     // test searchKnnCloserFirst of BruteforceSearch
-    microseconds=0;
+    long long search_time =0;
     size_t total_correct = 0;
     for (size_t j = 0; j < nq; ++j) {
         const void* p = query.data() + j * d;
@@ -74,10 +86,10 @@ void test() {
             gd.pop();
         }
         size_t correct = 0;
-        start = std::chrono::high_resolution_clock::now();
+        auto start = std::chrono::high_resolution_clock::now();
         auto hnsw_res = alg_hnsw->searchKnnCloserFirst(p, k);
-        elapsed = std::chrono::high_resolution_clock::now() - start;
-        microseconds += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+        search_time += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
         for (auto res : hnsw_res) {
             for (auto expect_res : bf_res) {
                 if (res.second == expect_res.second) {
@@ -89,7 +101,7 @@ void test() {
         std::cout << "correct: " << correct << " out of " << k << std::endl;
         total_correct+=correct;
     }
-    std::cout << "total search time in microseconds: " << microseconds << std::endl;
+    std::cout << "total search time in microseconds: " << search_time << std::endl;
     std::cout << "recall is: " << float(total_correct)/(k*nq) << std::endl;
 
     for (size_t j = 0; j < nq; ++j) {
@@ -112,7 +124,11 @@ void test() {
 
 int main() {
     std::cout << "Testing ..." << std::endl;
-    test();
+    int d[3] = {4, 128, 1024};
+    for (int i = 0; i<3; i++) {
+        std::cout << "d = " << d[i] << std::endl;
+        test(d[i]);
+    }
     std::cout << "Test ok" << std::endl;
 
     return 0;
