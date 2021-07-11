@@ -17,11 +17,10 @@ using idx_t = hnswlib::labeltype;
 
 void test(int d) {
     idx_t n = 1000000;
-    if (d > 1000) n/=10;
     idx_t nq = 10;
     size_t M = 16;
     size_t ef_construction = 200;
-    size_t ef = 10;
+    size_t ef = 200;
     size_t k = 10;
    
     std::vector<float> data(n * d);
@@ -124,8 +123,8 @@ void test(int d) {
 
 int main() {
     std::cout << "Testing ..." << std::endl;
-    int d[3] = {4, 128, 1024};
-    for (int i = 0; i<3; i++) {
+    int d[3] = {128, 1024};
+    for (int i = 0; i<2; i++) {
         std::cout << "d = " << d[i] << std::endl;
         test(d[i]);
     }
