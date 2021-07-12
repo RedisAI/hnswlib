@@ -9,13 +9,14 @@
 
 #include <vector>
 #include <iostream>
+#include <string>
 
 namespace
 {
 
 using idx_t = hnswlib::labeltype;
 
-void test(int d, int n, int k, int M, int ef_c, int ef) {
+void test(int d, long n, int k, int M, int ef_c, int ef) {
     idx_t nq = 10;
    
     std::vector<float> data(n * d);
@@ -50,7 +51,7 @@ void test(int d, int n, int k, int M, int ef_c, int ef) {
         auto elapsed = std::chrono::high_resolution_clock::now() - start;
         insert_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
 
-        if (i > n/2 && i%10 == 0) {
+        if (i%10 == 9) {
             int label = distrib(rng)*i;
             alg_brute->removePoint(label);
 
@@ -62,9 +63,9 @@ void test(int d, int n, int k, int M, int ef_c, int ef) {
     }
 
     total_duration = insert_duration + remove_duration;
-    std::cout << "total insert time in microseconds: " << insert_duration << std::endl;
-    std::cout << "total remove time in microseconds: " << remove_duration << std::endl;
-    std::cout << "total build time in microseconds: " << total_duration << std::endl;
+    std::cerr << "total insert time in microseconds: " << insert_duration << std::endl;
+    std::cerr << "total remove time in microseconds: " << remove_duration << std::endl;
+    std::cerr << "total build time in microseconds: " << total_duration << std::endl;
 
     // test searchKnnCloserFirst of BruteforceSearch
     long long search_time =0;
@@ -92,11 +93,12 @@ void test(int d, int n, int k, int M, int ef_c, int ef) {
                 }
             }
         }
-        std::cout << "correct: " << correct << " out of " << k << std::endl;
+        //std::cout << "correct: " << correct << " out of " << k << std::endl;
         total_correct+=correct;
     }
-    std::cout << "total search time in microseconds: " << search_time << std::endl;
-    std::cout << "recall is: " << float(total_correct)/(k*nq) << std::endl;
+    std::cerr << "total search time in microseconds: " << search_time << std::endl;
+    std::cerr << "recall is: " << float(total_correct)/(k*nq) << std::endl;
+    std::cout << float(total_correct)/(k*nq) << std::endl;
 
     for (size_t j = 0; j < nq; ++j) {
         const void* p = query.data() + j * d;
@@ -115,18 +117,36 @@ void test(int d, int n, int k, int M, int ef_c, int ef) {
 
 } // namespace
 
-int main() {
-    std::cout << "Testing ..." << std::endl;
-    int d = 32;
-    int n = 100000;
-    int k = 16;
-    int M = 16;
-    int ef_c = 100;
-    int ef = 100;
+int main(int argc, char** argv) {
+    //std::cout << "Testing ..." << std::endl;
+    int d;
+    long n;
+    int k;
+    int M;
+    int ef_c;
+    int ef;
 
-    std::cout << "d=" << d << ", n=" << n << ",k="<< k << ", M=" << M << ",ef_c=" << ef_c << ", ef=" << ef << std::endl;
+    int i=1;
+    while (i<argc) {
+        if(strcasecmp(argv[i], "d") == 0) {
+            d = std::stoi(argv[++i]);
+        } else if(strcasecmp(argv[i], "n") == 0) {
+            n = std::stol(argv[++i]);
+        } else if(strcasecmp(argv[i], "k") == 0) {
+            k = std::stoi(argv[++i]);
+        } else if(strcasecmp(argv[i], "M") == 0) {
+            M = std::stoi(argv[++i]);
+        } else if(strcasecmp(argv[i], "ef_c") == 0) {
+            ef_c = std::stoi(argv[++i]);
+        } else if(strcasecmp(argv[i], "ef") == 0) {
+            ef = std::stoi(argv[++i]);
+        }
+        i++;
+    }
+
+    std::cerr << "d=" << d << ", n=" << n << ", k="<< k << ", M=" << M << ", ef_c=" << ef_c << ", ef=" << ef << std::endl;
     test(d,n,k,M,ef_c,ef);
-    std::cout << "Test ok" << std::endl;
+    //std::cout << "Test ok" << std::endl;
 
     return 0;
 }
