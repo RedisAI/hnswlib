@@ -15,13 +15,8 @@ namespace
 
 using idx_t = hnswlib::labeltype;
 
-void test(int d) {
-    idx_t n = 1000000;
+void test(int d, int n, int k, int M, int ef_c, int ef) {
     idx_t nq = 10;
-    size_t M = 16;
-    size_t ef_construction = 200;
-    size_t ef = 200;
-    size_t k = 10;
    
     std::vector<float> data(n * d);
     std::vector<float> query(nq * d);
@@ -39,8 +34,8 @@ void test(int d) {
       
 
     hnswlib::L2Space space(d);
-    hnswlib::AlgorithmInterface<float>* alg_brute  = new hnswlib::BruteforceSearch<float>(&space, 2 * n);
-    hnswlib::AlgorithmInterface<float>* alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, 2 * n, M, ef_construction, ef);
+    hnswlib::AlgorithmInterface<float>* alg_brute  = new hnswlib::BruteforceSearch<float>(&space, n);
+    hnswlib::AlgorithmInterface<float>* alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, n, M, ef_c, ef);
 
 
     long long insert_duration = 0;
@@ -114,7 +109,6 @@ void test(int d) {
             gd.pop();
         }
     }
-
     delete alg_brute;
     delete alg_hnsw;
 }
@@ -123,11 +117,15 @@ void test(int d) {
 
 int main() {
     std::cout << "Testing ..." << std::endl;
-    int d[3] = {128, 1024};
-    for (int i = 0; i<2; i++) {
-        std::cout << "d = " << d[i] << std::endl;
-        test(d[i]);
-    }
+    int d = 32;
+    int n = 100000;
+    int k = 16;
+    int M = 16;
+    int ef_c = 100;
+    int ef = 100;
+
+    std::cout << "d=" << d << ", n=" << n << ",k="<< k << ", M=" << M << ",ef_c=" << ef_c << ", ef=" << ef << std::endl;
+    test(d,n,k,M,ef_c,ef);
     std::cout << "Test ok" << std::endl;
 
     return 0;
