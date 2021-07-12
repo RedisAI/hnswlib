@@ -37,7 +37,7 @@ namespace hnswlib {
             maxM_ = M_;
             maxM0_ = M_ * 2;
             ef_construction_ = std::max(ef_construction,M_);
-            ef_ = 10;
+            ef_ = 200;
 
             level_generator_.seed(random_seed);
             update_probability_generator_.seed(random_seed + 1);

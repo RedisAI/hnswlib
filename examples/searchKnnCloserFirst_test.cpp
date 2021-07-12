@@ -17,6 +17,9 @@ using idx_t = hnswlib::labeltype;
 
 void test(int d) {
     idx_t n = 1000000;
+    if (d == 1024) {
+        n/=10;
+    }
     idx_t nq = 10;
     size_t k = 10;
    
@@ -38,7 +41,6 @@ void test(int d) {
     hnswlib::L2Space space(d);
     hnswlib::AlgorithmInterface<float>* alg_brute  = new hnswlib::BruteforceSearch<float>(&space, 2 * n);
     hnswlib::AlgorithmInterface<float>* alg_hnsw = new hnswlib::HierarchicalNSW<float>(&space, 2 * n);
-
 
 
     long long insert_duration = 0;
@@ -120,8 +122,8 @@ void test(int d) {
 
 int main() {
     std::cout << "Testing ..." << std::endl;
-    int d[3] = {4, 128, 1024};
-    for (int i = 0; i<3; i++) {
+    int d[2] = {128, 1024};
+    for (int i = 0; i<2; i++) {
         std::cout << "d = " << d[i] << std::endl;
         test(d[i]);
     }
