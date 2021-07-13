@@ -1089,7 +1089,6 @@ namespace hnswlib {
                     linklistsizeint *incoming_node_neighbours_list = get_linklist_at_level(incoming_edge, level);
                     unsigned short incoming_node_neighbours_count = getListCount(incoming_node_neighbours_list);
                     tableint *incoming_node_neighbours = (tableint *)(incoming_node_neighbours_list + 1);
-                    //todo: test
                     repairConnectionsForDeletion(element_internal_id, incoming_edge,
                       neighbours_list, incoming_node_neighbours_list, level);
                 }
