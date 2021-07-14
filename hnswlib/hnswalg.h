@@ -776,17 +776,21 @@ namespace hnswlib {
          * Marks an element with the given label deleted, does NOT really change the current graph.
          * @param label
          */
-        void markDelete(labeltype label)
+        bool markDelete(labeltype label)
         {
             has_deletions_=true;
             auto search = label_lookup_.find(label);
             if (search == label_lookup_.end()) {
                 throw std::runtime_error("Label not found");
             }
+            if (isMarkedDeleted(search->second)) {
+                return false;
+            }
             markDeletedInternal(search->second);
+            return true;
         }
-        void removePoint(labeltype label) {
-            markDelete(label);
+        bool removePoint(labeltype label) {
+            return markDelete(label);
         }
 
         /**

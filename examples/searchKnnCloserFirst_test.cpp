@@ -10,6 +10,7 @@
 #include <vector>
 #include <iostream>
 #include <string>
+#include <set>
 
 namespace
 {
@@ -42,6 +43,7 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
     long long insert_duration = 0;
     long long remove_duration = 0;
     long long total_duration = 0;
+    auto valid_labels = std::set<size_t>();
 
     for (size_t i = 0; i < n; ++i) {
         alg_brute->addPoint(data.data() + d * i, i);
@@ -51,14 +53,24 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
         auto elapsed = std::chrono::high_resolution_clock::now() - start;
         insert_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
 
+        valid_labels.insert(i);
+
         if (i%10 == 9) {
-            int label = distrib(rng)*i;
-            alg_brute->removePoint(label);
+            auto label_index = (size_t)(distrib(rng) * valid_labels.size());
+            auto it = valid_labels.begin();
+            std::advance(it, label_index);
+            size_t label = *it;
+
+            if(!alg_brute->removePoint(label)) {
+                throw std::runtime_error("Trying to remove an element that doesn't exist");
+            }
 
             start = std::chrono::high_resolution_clock::now();
-            alg_hnsw->removePoint(label);
+            assert(alg_hnsw->removePoint(label));
             elapsed = std::chrono::high_resolution_clock::now() - start;
             remove_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+
+            valid_labels.erase(label);
         }
     }
 

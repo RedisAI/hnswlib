@@ -72,7 +72,11 @@ namespace hnswlib {
 
         };
 
-        void removePoint(labeltype cur_external) {
+        bool removePoint(labeltype cur_external) {
+            //if (dict_external_to_internal.find(cur_external) == dict_external_to_internal.end()) {
+                //return false;
+            //}
+
             size_t cur_c=dict_external_to_internal[cur_external];
 
             dict_external_to_internal.erase(cur_external);
@@ -83,7 +87,7 @@ namespace hnswlib {
                    data_ + size_per_element_ * (cur_element_count-1),
                    data_size_+sizeof(labeltype));
             cur_element_count--;
-
+            return true;
         }
 
 
