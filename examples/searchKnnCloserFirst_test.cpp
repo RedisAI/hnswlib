@@ -73,7 +73,6 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
             valid_labels.pop_back();
         }
     }
-    std::cerr << "not deleted: " << not_deleted << std::endl;
 
     total_duration = insert_duration + remove_duration;
     std::cerr << "total insert time in microseconds: " << insert_duration << std::endl;
