@@ -11,6 +11,7 @@
 #include <iostream>
 #include <string>
 #include <set>
+#include <sys/resource.h>
 
 namespace
 {
@@ -44,6 +45,7 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
     long long remove_duration = 0;
     long long total_duration = 0;
     auto valid_labels = std::vector<size_t>();
+    int next_stat_print = 10;
 
     for (size_t i = 0; i < n; ++i) {
 
@@ -53,6 +55,13 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
         alg_hnsw->addPoint(data.data() + d * i, i);
         auto elapsed = std::chrono::high_resolution_clock::now() - start;
         insert_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+        if (i%next_stat_print==9) {
+            std::cerr << "after " << i << " steps, insert takes: " <<
+            std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() << std::endl;
+            struct rusage self_ru{};
+            getrusage(RUSAGE_SELF, &self_ru);
+            std::cerr << "memory usage is : " << self_ru.ru_maxrss << std::endl;
+        }
 
         valid_labels.push_back(i);
 
@@ -68,7 +77,11 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
             alg_hnsw->removePoint(label);
             elapsed = std::chrono::high_resolution_clock::now() - start;
             remove_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-
+            if (i%next_stat_print == 9) {
+                std::cerr << "after " << i << " steps, delete takes: " <<
+                          std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() << std::endl;
+                next_stat_print *= 10;
+            }
             valid_labels[label_index] = valid_labels[valid_labels.size()-1];
             valid_labels.pop_back();
         }
