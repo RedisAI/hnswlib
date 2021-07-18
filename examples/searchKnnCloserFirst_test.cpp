@@ -55,9 +55,9 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
         alg_hnsw->addPoint(data.data() + d * i, i);
         auto elapsed = std::chrono::high_resolution_clock::now() - start;
         insert_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-        if (i%next_stat_print==9) {
-            std::cerr << "after " << i << " steps, insert takes: " <<
-            std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() << std::endl;
+        if (i%next_stat_print==9 ) {
+            std::cerr << "after " << i << " avg insert takes: " <<
+            insert_duration / (i+1) << std::endl;
             struct rusage self_ru{};
             getrusage(RUSAGE_SELF, &self_ru);
             std::cerr << "memory usage is : " << self_ru.ru_maxrss << std::endl;
@@ -78,8 +78,8 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
             elapsed = std::chrono::high_resolution_clock::now() - start;
             remove_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
             if (i%next_stat_print == 9) {
-                std::cerr << "after " << i << " steps, delete takes: " <<
-                          std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count() << std::endl;
+                std::cerr << "after " << i << " steps, avg delete takes: " <<
+                          remove_duration / ((i/10) + 1) << std::endl;
                 next_stat_print *= 10;
             }
             valid_labels[label_index] = valid_labels[valid_labels.size()-1];
