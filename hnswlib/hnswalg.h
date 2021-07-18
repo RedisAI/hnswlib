@@ -45,13 +45,13 @@ namespace hnswlib {
 
 
             // memory looks like this:
-            // -----4------ | -----4*M0----------- | ----8------------------| ------32------- | ----8---- |
-            // <links_len>  | <link_1> <link_2>... | <incoming_links_array> |   <data>        |  <label>
+            // -----4------ | -----4*M0----------- | ----8*M0------------|-----8-----------------| ---32---- | ----8-- |
+            // <links_len>  | <link_1> <link_2>... | <dist_1> <dist_2>...|<incoming_links_array> |   <data>  |  <label>
             // alon: added a dynamic array for the incoming edges which are not outgoing as well.
-            size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint)
+            size_links_level0_ = maxM0_ * (sizeof(tableint) + sizeof(dist_t)) + sizeof(linklistsizeint)
               + sizeof(void*);
             size_data_per_element_ = size_links_level0_ + data_size_ + sizeof(labeltype);
-            incoming_links_offset0 = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
+            incoming_links_offset0 = maxM0_ * (sizeof(tableint) + sizeof(dist_t))  + sizeof(linklistsizeint);
             offsetData_ = size_links_level0_;
             label_offset_ = size_links_level0_ + data_size_;
             offsetLevel0_ = 0;
@@ -74,12 +74,12 @@ namespace hnswlib {
 
             // The i-th entry in linkLists array points to max_level[i] (continuous)
             // chunks of memory, each one looks like this:
-            // -----4------ | -----4*M-------------- | ----8------------------|
-            // <links_len>  | <link_1> <link_2> ...  | <incoming_links_array>
+            // -----4------ | -----4*M-------------- | ------8*M----------- | ----8------------------|
+            // <links_len>  | <link_1> <link_2> ...  | <dist_1> <dist_2>... | <incoming_links_array>
             // alon: added a dynamic array for the incoming edges which are not outgoing as well.
-            size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint)
+            size_links_per_element_ = maxM_ * (sizeof(tableint)+sizeof(dist_t)) + sizeof(linklistsizeint)
               + sizeof(void *);
-            incoming_links_offset = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
+            incoming_links_offset = maxM_ * (sizeof(tableint)+sizeof(dist_t)) + sizeof(linklistsizeint);
 
             mult_ = 1 / log(1.0 * M_);
             revSize_ = 1.0 / mult_;
@@ -434,6 +434,20 @@ namespace hnswlib {
             return level == 0 ? get_linklist0(internal_id) : get_linklist(internal_id, level);
         };
 
+        dist_t *get_linkDistList(tableint internal_id, int level) const {
+            return (dist_t *) (linkLists_[internal_id] + (level - 1) * size_links_per_element_
+                               + maxM_ * sizeof(tableint) + sizeof(linklistsizeint));
+        };
+
+        dist_t *get_linkDistList0(tableint internal_id) const {
+            return (dist_t *) (data_level0_memory_ + internal_id * size_data_per_element_ + offsetLevel0_
+                               + maxM0_ * sizeof(tableint) + sizeof(linklistsizeint));
+        };
+
+        dist_t *get_linkDistList_at_level(tableint internal_id, int level) const {
+            return level == 0 ? get_linkDistList0(internal_id) : get_linkDistList(internal_id, level);
+        };
+
         tableint mutuallyConnectNewElement(const void *data_point, tableint cur_c,
                                        std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> &top_candidates,
         int level, bool isUpdate) {
@@ -443,9 +457,11 @@ namespace hnswlib {
                 throw std::runtime_error("Should be not be more than M_ candidates returned by the heuristic");
 
             std::vector<tableint> selectedNeighbors;
+            std::vector<dist_t> dist_to_selected_neighbors;
             selectedNeighbors.reserve(M_);
             while (top_candidates.size() > 0) {
                 selectedNeighbors.push_back(top_candidates.top().second);
+                dist_to_selected_neighbors.push_back(top_candidates.top().first);
                 top_candidates.pop();
             }
 
@@ -456,7 +472,7 @@ namespace hnswlib {
                     ll_cur = get_linklist0(cur_c);
                 else
                     ll_cur = get_linklist(cur_c, level);
-
+                dist_t *link_dist_cur = get_linkDistList_at_level(cur_c, level);
                 if (*ll_cur && !isUpdate) {
                     throw std::runtime_error("The newly inserted element should have blank link list");
                 }
@@ -469,6 +485,7 @@ namespace hnswlib {
                         throw std::runtime_error("Trying to make a link on a non-existent level");
 
                     data[idx] = selectedNeighbors[idx];
+                    link_dist_cur[idx] = dist_to_selected_neighbors[idx];
                 }
                 auto *incoming_edges = new std::set<tableint>();
                 setIncomingEdgesPtr(cur_c, level, incoming_edges);
@@ -495,6 +512,7 @@ namespace hnswlib {
 
                 //alon: data is the array of neighbours - for the current neighbour (idx)
                 tableint *data = (tableint *) (ll_other + 1);
+                dist_t *neighbor_dist = get_linkDistList_at_level(selectedNeighbors[idx], level);
 
                 bool is_cur_c_present = false;
                 //alon: it is possible that the "new" node was already the neighbour of idx,
@@ -512,19 +530,20 @@ namespace hnswlib {
                 if (!is_cur_c_present) {
                     if (sz_link_list_other < Mcurmax) {
                         data[sz_link_list_other] = cur_c;
+                        neighbor_dist[sz_link_list_other] = dist_to_selected_neighbors[idx];
                         setListCount(ll_other, sz_link_list_other + 1);
                     } else {
                         // finding the "weakest" element to replace it with the new one
-                        dist_t d_max = fstdistfunc_(getDataByInternalId(cur_c), getDataByInternalId(selectedNeighbors[idx]),
-                                                    dist_func_param_);
+                        // alon: we already have it  - optimize
+                        /*dist_t d_max = fstdistfunc_(getDataByInternalId(cur_c), getDataByInternalId(selectedNeighbors[idx]),
+                                                    dist_func_param_);*/
                         // Heuristic:
                         std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
-                        candidates.emplace(d_max, cur_c);
+                        candidates.emplace(dist_to_selected_neighbors[idx], cur_c);
 
                         for (size_t j = 0; j < sz_link_list_other; j++) {
-                            candidates.emplace(
-                                    fstdistfunc_(getDataByInternalId(data[j]), getDataByInternalId(selectedNeighbors[idx]),
-                                                 dist_func_param_), data[j]);
+                            // alon: this has been optimized.
+                            candidates.emplace(neighbor_dist[j], data[j]);
                         }
                         auto orig_candidates = candidates;
 
@@ -544,7 +563,8 @@ namespace hnswlib {
                                 removed_links[removed_idx++] = orig_candidates.top().second;
                                 orig_candidates.pop();
                             } else {
-                                data[link_idx++] = candidates.top().second;
+                                data[link_idx] = candidates.top().second;
+                                neighbor_dist[link_idx++] = candidates.top().first;
                                 candidates.pop();
                                 orig_candidates.pop();
                             }
@@ -926,32 +946,33 @@ namespace hnswlib {
         void repairConnectionsForDeletion(tableint element_internal_id, tableint neighbour_id,
           tableint *neighbours_list, tableint *neighbour_neighbours_list, int level){
 
-            // alon: put the deleted element's neighbours in the candidates.
+
             std::priority_queue<std::pair<dist_t, tableint>, std::vector<std::pair<dist_t, tableint>>, CompareByFirst> candidates;
-            std::set<tableint> candidates_set;
+
+            // alon: put the neighbor's neighbours in the candidates.
+            std::set<tableint> neighbour_orig_neighbours_set;
+            unsigned short neighbour_neighbours_count = getListCount(neighbour_neighbours_list);
+            tableint *neighbour_neighbours = (tableint *)(neighbour_neighbours_list + 1);
+            dist_t *neighbour_neighbours_dist = get_linkDistList_at_level(neighbour_id, level);
+            for (size_t j = 0; j < neighbour_neighbours_count; j++) {
+                if (neighbour_neighbours[j] == element_internal_id) {
+                    continue;
+                }
+                neighbour_orig_neighbours_set.insert(neighbour_neighbours[j]);
+                candidates.emplace(neighbour_neighbours_dist[j], neighbour_neighbours[j]);
+            }
+
+            // alon: put the deleted element's neighbours in the candidates.
             unsigned short neighbours_count = getListCount(neighbours_list);
             tableint *neighbours = (tableint *)(neighbours_list + 1);
             for (size_t j = 0; j < neighbours_count; j++) {
-                if (neighbours[j] == neighbour_id) {
+                if (neighbours[j] == neighbour_id ||
+                neighbour_orig_neighbours_set.find(neighbours[j]) != neighbour_orig_neighbours_set.end()) {
                     continue;
                 }
                 candidates.emplace(
                   fstdistfunc_(getDataByInternalId(neighbours[j]), getDataByInternalId(neighbour_id),
                     dist_func_param_), neighbours[j]);
-                candidates_set.insert(neighbours[j]);
-            }
-            std::set<tableint> neighbour_orig_neighbours_set;
-            unsigned short neighbour_neighbours_count = getListCount(neighbour_neighbours_list);
-            tableint *neighbour_neighbours = (tableint *)(neighbour_neighbours_list + 1);
-            for (size_t j = 0; j < neighbour_neighbours_count; j++) {
-                neighbour_orig_neighbours_set.insert(neighbour_neighbours[j]);
-                if (candidates_set.find(neighbour_neighbours[j]) != candidates_set.end() ||
-                  neighbour_neighbours[j] == element_internal_id) {
-                    continue;
-                }
-                candidates.emplace(fstdistfunc_(getDataByInternalId(neighbour_id),
-                  getDataByInternalId(neighbour_neighbours[j]), dist_func_param_),
-                  neighbour_neighbours[j]);
             }
 
             int total_candidates = candidates.size();
@@ -977,7 +998,8 @@ namespace hnswlib {
                     }
                     orig_candidates.pop();
                 } else {
-                    neighbour_neighbours[link_idx++] = candidates.top().second;
+                    neighbour_neighbours[link_idx] = candidates.top().second;
+                    neighbour_neighbours_dist[link_idx++] = candidates.top().first;
                     candidates.pop();
                     orig_candidates.pop();
                 }
@@ -1326,9 +1348,6 @@ namespace hnswlib {
             // Initialisation of the data and label
             memcpy(getExternalLabeLp(cur_c), &label, sizeof(labeltype));
             memcpy(getDataByInternalId(cur_c), data_point, data_size_);
-
-
-
 
             if (curlevel) {
                 linkLists_[cur_c] = (char *) malloc(size_links_per_element_ * curlevel + 1);
