@@ -10,13 +10,69 @@
 #include <vector>
 #include <iostream>
 #include <string>
-#include <set>
+#include <thread>
 #include <sys/resource.h>
 
 namespace
 {
 
 using idx_t = hnswlib::labeltype;
+
+    template<class Function>
+    inline void ParallelFor(size_t start, size_t end, size_t numThreads, Function fn) {
+        if (numThreads <= 0) {
+            numThreads = std::thread::hardware_concurrency();
+        }
+
+        if (numThreads == 1) {
+            for (size_t id = start; id < end; id++) {
+                fn(id, 0);
+            }
+        } else {
+            std::vector<std::thread> threads;
+            std::atomic<size_t> current(start);
+
+            // keep track of exceptions in threads
+            // https://stackoverflow.com/a/32428427/1713196
+            std::exception_ptr lastException = nullptr;
+            std::mutex lastExceptMutex;
+
+            for (size_t threadId = 0; threadId < numThreads; ++threadId) {
+                threads.push_back(std::thread([&, threadId] {
+                    while (true) {
+                        size_t id = current.fetch_add(1);
+
+                        if ((id >= end)) {
+                            break;
+                        }
+
+                        try {
+                            fn(id, threadId);
+                        } catch (...) {
+                            std::unique_lock<std::mutex> lastExcepLock(lastExceptMutex);
+                            lastException = std::current_exception();
+                            /*
+                             * This will work even when current is the largest value that
+                             * size_t can fit, because fetch_add returns the previous value
+                             * before the increment (what will result in overflow
+                             * and produce 0 instead of current + 1).
+                             */
+                            current = end;
+                            break;
+                        }
+                    }
+                }));
+            }
+            for (auto &thread : threads) {
+                thread.join();
+            }
+            if (lastException) {
+                std::rethrow_exception(lastException);
+            }
+        }
+
+
+    }
 
 void test(int d, long n, int k, int M, int ef_c, int ef) {
     idx_t nq = 10;
@@ -47,45 +103,89 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
     auto valid_labels = std::vector<size_t>();
     int next_stat_print = 10;
 
-    for (size_t i = 0; i < n; ++i) {
+//    for (size_t i = 0; i < n; ++i) {
+//
+//        alg_brute->addPoint(data.data() + d * i, i);
+//
+//        auto start = std::chrono::high_resolution_clock::now();
+//        alg_hnsw->addPoint(data.data() + d * i, i);
+//        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+//        insert_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+//        if (i%next_stat_print==9 ) {
+//            std::cerr << "after " << i << " avg insert takes: " <<
+//            insert_duration / (i+1) << std::endl;
+//            struct rusage self_ru{};
+//            getrusage(RUSAGE_SELF, &self_ru);
+//            std::cerr << "memory usage is : " << self_ru.ru_maxrss << std::endl;
+//        }
+//
+//        valid_labels.push_back(i);
+//
+//        if (i%10 == 9) {
+//            auto label_index = (size_t)(distrib(rng) * valid_labels.size());
+//            auto label = valid_labels[label_index];
+//
+//            if(!alg_brute->removePoint(label)) {
+//                throw std::runtime_error("Trying to remove an element that doesn't exist");
+//            }
+//
+//            start = std::chrono::high_resolution_clock::now();
+//            alg_hnsw->removePoint(label);
+//            elapsed = std::chrono::high_resolution_clock::now() - start;
+//            remove_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+//            if (i%next_stat_print == 9) {
+//                std::cerr << "after " << i << " steps, avg delete takes: " <<
+//                          remove_duration / ((i/10) + 1) << std::endl;
+//                next_stat_print *= 10;
+//            }
+//            valid_labels[label_index] = valid_labels[valid_labels.size()-1];
+//            valid_labels.pop_back();
+//        }
+//    }
 
-        alg_brute->addPoint(data.data() + d * i, i);
-
+    for (size_t i = 0; i < n; i+=10) {
         auto start = std::chrono::high_resolution_clock::now();
-        alg_hnsw->addPoint(data.data() + d * i, i);
+        ParallelFor(i, i+10, 8, [&](size_t id, size_t threadId) {
+            alg_hnsw->addPoint(data.data() + d * id, id);
+        });
         auto elapsed = std::chrono::high_resolution_clock::now() - start;
         insert_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-        if (i%next_stat_print==9 ) {
+
+        for (size_t j=i; j<(i+10); j++) {
+            valid_labels.push_back(j);
+        }
+
+        if (i == next_stat_print) {
             std::cerr << "after " << i << " avg insert takes: " <<
             insert_duration / (i+1) << std::endl;
             struct rusage self_ru{};
             getrusage(RUSAGE_SELF, &self_ru);
             std::cerr << "memory usage is : " << self_ru.ru_maxrss << std::endl;
         }
+        ParallelFor(i, i+10, 8, [&](size_t id, size_t threadId) {
+            alg_brute->addPoint(data.data() + d * id, id);
+        });
 
-        valid_labels.push_back(i);
+        // after 10 insert, delete one
+        auto label_index = (size_t)(distrib(rng) * valid_labels.size());
+        auto label = valid_labels[label_index];
 
-        if (i%10 == 9) {
-            auto label_index = (size_t)(distrib(rng) * valid_labels.size());
-            auto label = valid_labels[label_index];
-
-            if(!alg_brute->removePoint(label)) {
-                throw std::runtime_error("Trying to remove an element that doesn't exist");
-            }
-
-            start = std::chrono::high_resolution_clock::now();
-            alg_hnsw->removePoint(label);
-            elapsed = std::chrono::high_resolution_clock::now() - start;
-            remove_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
-            if (i%next_stat_print == 9) {
-                std::cerr << "after " << i << " steps, avg delete takes: " <<
-                          remove_duration / ((i/10) + 1) << std::endl;
-                next_stat_print *= 10;
-            }
-            valid_labels[label_index] = valid_labels[valid_labels.size()-1];
-            valid_labels.pop_back();
+        if(!alg_brute->removePoint(label)) {
+            throw std::runtime_error("Trying to remove an element that doesn't exist");
         }
+
+        start = std::chrono::high_resolution_clock::now();
+        alg_hnsw->removePoint(label);
+        elapsed = std::chrono::high_resolution_clock::now() - start;
+        remove_duration += std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
+        if (i == next_stat_print) {
+            std::cerr << "after " << i << " steps, avg delete takes: " << remove_duration / ((i/10) + 1) << std::endl;
+            next_stat_print *= 10;
+        }
+        valid_labels[label_index] = valid_labels[valid_labels.size()-1];
+        valid_labels.pop_back();
     }
+
 
     total_duration = insert_duration + remove_duration;
     std::cerr << "total insert time in microseconds: " << insert_duration << std::endl;
