@@ -638,6 +638,10 @@ public:
         appr_alg->markDelete(label);
     }
 
+    void deleteVector(size_t label) {
+        appr_alg->removePoint(label);
+    }
+
     void resizeIndex(size_t new_size) {
         appr_alg->resizeIndex(new_size);
     }
@@ -649,6 +653,10 @@ public:
     size_t getCurrentCount() const {
         return appr_alg->cur_element_count;
     }
+
+    void checkIntegrity() {
+      appr_alg->checkIntegrity();
+  }
 
 };
 
@@ -743,18 +751,17 @@ public:
                 throw std::runtime_error("wrong dimensionality of the labels");
         }
         {
-            int start = 0;
             py::gil_scoped_release l;
 
-            std::vector<float> norm_array(dim);
-            for (size_t i = start; i < rows; i++) {
-                alg->addPoint((void *) items.data(i), (size_t) i);
+            for (size_t row = 0; row < rows; row++) {
+                size_t id = ids.size() ? ids.at(row) : cur_l + row;
+                alg->addPoint((void *) items.data(row), (size_t) id);
             }
             cur_l+=rows;
         }
     }
 
-    void deletedVector(size_t label) {
+    void deleteVector(size_t label) {
         alg->removePoint(label);
     }
 
@@ -836,9 +843,11 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("save_index", &Index<float>::saveIndex, py::arg("path_to_index"))
         .def("load_index", &Index<float>::loadIndex, py::arg("path_to_index"), py::arg("max_elements")=0)
         .def("mark_deleted", &Index<float>::markDeleted, py::arg("label"))
+        .def("delete_vector", &Index<float>::deleteVector, py::arg("label"))
         .def("resize_index", &Index<float>::resizeIndex, py::arg("new_size"))
         .def("get_max_elements", &Index<float>::getMaxElements)
         .def("get_current_count", &Index<float>::getCurrentCount)
+        .def("check_integrity", &Index<float>::checkIntegrity)
         .def_readonly("space", &Index<float>::space_name)
         .def_readonly("dim", &Index<float>::dim)
         .def_readwrite("num_threads", &Index<float>::num_threads_default)
@@ -885,6 +894,7 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("init_index", &BFIndex<float>::init_new_index, py::arg("max_elements"))
         .def("knn_query", &BFIndex<float>::knnQuery_return_numpy, py::arg("data"), py::arg("k")=1)
         .def("add_items", &BFIndex<float>::addItems, py::arg("data"), py::arg("ids") = py::none())
+        .def("delete_vector", &BFIndex<float>::deleteVector, py::arg("label"))
         .def("__repr__", [](const BFIndex<float> &a) {
             return "<hnswlib.BFIndex(space='" + a.space_name + "', dim="+std::to_string(a.dim)+")>";
         });
