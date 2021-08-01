@@ -70,7 +70,6 @@ namespace hnswlib {
     class AlgorithmInterface {
     public:
         virtual void addPoint(const void *datapoint, labeltype label)=0;
-        virtual void checkIntegrity()=0;
         virtual std::priority_queue<std::pair<dist_t, labeltype >> searchKnn(const void *, size_t) const = 0;
         virtual bool removePoint(const labeltype label) = 0;
 
@@ -78,7 +77,6 @@ namespace hnswlib {
         virtual std::vector<std::pair<dist_t, labeltype>>
             searchKnnCloserFirst(const void* query_data, size_t k) const;
 
-        virtual void saveIndex(const std::string &location)=0;
         virtual ~AlgorithmInterface(){
         }
     };
