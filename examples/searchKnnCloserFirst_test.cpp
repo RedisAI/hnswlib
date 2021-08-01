@@ -10,7 +10,7 @@
 #include <vector>
 #include <iostream>
 #include <string>
-#include <set>
+#include <thread>
 #include <sys/resource.h>
 
 namespace
@@ -171,7 +171,6 @@ int main(int argc, char** argv) {
 
     std::cerr << "d=" << d << ", n=" << n << ", k="<< k << ", M=" << M << ", ef_c=" << ef_c << ", ef=" << ef << std::endl;
     test(d,n,k,M,ef_c,ef);
-    //std::cout << "Test ok" << std::endl;
 
     return 0;
 }

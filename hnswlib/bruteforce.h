@@ -68,8 +68,6 @@ namespace hnswlib {
             memcpy(data_ + size_per_element_ * idx, datapoint, data_size_);
 
 
-
-
         };
 
         bool removePoint(labeltype cur_external) {
@@ -87,11 +85,6 @@ namespace hnswlib {
             cur_element_count--;
             return true;
         }
-
-        void checkIntegrity() {
-            return;
-        }
-
 
         std::priority_queue<std::pair<dist_t, labeltype >>
         searchKnn(const void *query_data, size_t k) const {
