@@ -148,23 +148,8 @@ public:
         appr_alg->ef_ = ef;
     }
 
-
     void set_num_threads(int num_threads) {
         this->num_threads_default = num_threads;
-    }
-
-    void saveIndex(const std::string &path_to_index) {
-        appr_alg->saveIndex(path_to_index);
-    }
-
-    void loadIndex(const std::string &path_to_index, size_t max_elements) {
-      if (appr_alg) {
-          std::cerr<<"Warning: Calling load_index for an already inited index. Old index is being deallocated.";
-          delete appr_alg;
-      }
-      appr_alg = new hnswlib::HierarchicalNSW<dist_t>(l2space, path_to_index, false, max_elements);
-      cur_l = appr_alg->cur_element_count;
-      index_inited = true;
     }
 
     void normalize_vector(float *data, float *norm_array){
@@ -369,7 +354,6 @@ public:
                       "mult"_a=appr_alg->mult_,
                       "ef_construction"_a=appr_alg->ef_construction_,
                       "ef"_a=appr_alg->ef_,
-                      "has_deletions"_a=appr_alg->has_deletions_,
                       "size_links_per_element"_a=appr_alg->size_links_per_element_,
 
                       "label_lookup_external"_a=py::array_t<hnswlib::labeltype>(
@@ -489,7 +473,6 @@ public:
       assert_true(appr_alg->ef_construction_ == d["ef_construction"].cast<size_t>(), "Invalid value of ef_construction_ ");
 
       appr_alg->ef_ = d["ef"].cast<size_t>();
-      appr_alg->has_deletions_=d["has_deletions"].cast<bool>();
 
       assert_true(appr_alg->size_links_per_element_ == d["size_links_per_element"].cast<size_t>(), "Invalid value of size_links_per_element_ ");
 
@@ -632,10 +615,6 @@ public:
                         data_numpy_d, // the data pointer
                         free_when_done_d));
 
-    }
-
-    void markDeleted(size_t label) {
-        appr_alg->markDelete(label);
     }
 
     void deleteVector(size_t label) {
@@ -840,9 +819,6 @@ PYBIND11_PLUGIN(hnswlib) {
         .def("get_ids_list", &Index<float>::getIdsList)
         .def("set_ef", &Index<float>::set_ef, py::arg("ef"))
         .def("set_num_threads", &Index<float>::set_num_threads, py::arg("num_threads"))
-        .def("save_index", &Index<float>::saveIndex, py::arg("path_to_index"))
-        .def("load_index", &Index<float>::loadIndex, py::arg("path_to_index"), py::arg("max_elements")=0)
-        .def("mark_deleted", &Index<float>::markDeleted, py::arg("label"))
         .def("delete_vector", &Index<float>::deleteVector, py::arg("label"))
         .def("resize_index", &Index<float>::resizeIndex, py::arg("new_size"))
         .def("get_max_elements", &Index<float>::getMaxElements)
