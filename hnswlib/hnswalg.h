@@ -6,6 +6,7 @@
 #include <random>
 #include <stdlib.h>
 #include <assert.h>
+#include <sys/resource.h>
 #include <unordered_set>
 #include <list>
 #include <set>
@@ -941,6 +942,9 @@ namespace hnswlib {
         }
 
         void checkIntegrity(){
+            struct rusage self_ru{};
+            getrusage(RUSAGE_SELF, &self_ru);
+            std::cerr << "memory usage is : " << self_ru.ru_maxrss << std::endl;
             int connections_checked=0;
             int double_connections=0;
             std::vector <int > inbound_connections_num(max_id,0);
@@ -976,18 +980,8 @@ namespace hnswlib {
             }
             std::cout << "connections: " << connections_checked;
             std::cout << " double connections: " << double_connections << std::endl;
-            if(cur_element_count > 1){
-                int min1=inbound_connections_num[0], max1=inbound_connections_num[0];
-                for(int i=0; i <= max_id; i++){
-                    if (available_ids.find(i) != available_ids.end()) {
-                        continue;
-                    }
-                }
-            }
             std::cout << "integrity ok\n";
-
         }
-
     };
 
 }

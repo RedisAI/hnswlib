@@ -92,6 +92,7 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
     std::cerr << "total remove time in microseconds: " << remove_duration << std::endl;
     std::cerr << "total build time in microseconds: " << total_duration << std::endl;
 
+    alg_hnsw->checkIntegrity();
     // test searchKnnCloserFirst of BruteforceSearch
     long long search_time =0;
     size_t total_correct = 0;
@@ -125,17 +126,6 @@ void test(int d, long n, int k, int M, int ef_c, int ef) {
     std::cerr << "recall is: " << float(total_correct)/(k*nq) << std::endl;
     std::cout << float(total_correct)/(k*nq) << std::endl;
 
-    for (size_t j = 0; j < nq; ++j) {
-        const void* p = query.data() + j * d;
-        auto gd = alg_hnsw->searchKnn(p, k);
-        auto res = alg_hnsw->searchKnnCloserFirst(p, k);
-        assert(gd.size() == res.size());
-        size_t t = gd.size();
-        while (!gd.empty()) {
-            assert(gd.top() == res[--t]);
-            gd.pop();
-        }
-    }
     delete alg_brute;
     delete alg_hnsw;
 }

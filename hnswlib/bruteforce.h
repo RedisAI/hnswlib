@@ -70,6 +70,9 @@ namespace hnswlib {
 
         };
 
+        void checkIntegrity(){
+        }
+
         bool removePoint(labeltype cur_external) {
             if (dict_external_to_internal.find(cur_external) == dict_external_to_internal.end()) {
                 return false;
