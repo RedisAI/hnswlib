@@ -2,8 +2,8 @@ import hnswlib
 import numpy as np
 import time
 
-dim = 4
-num_elements = 1000010
+dim = 128
+num_elements = 1000
 M = 6
 ef = 10
 k = 10
