@@ -277,9 +277,6 @@ public:
     py::dict getAnnData() const { /* WARNING: Index::getAnnData is not thread-safe with Index::addItems */
 
 
-
-      std::unique_lock <std::mutex> templock(appr_alg->global);
-
       unsigned int level0_npy_size = appr_alg->cur_element_count * appr_alg->size_data_per_element_;
       unsigned int link_npy_size = 0;
       std::vector<unsigned int> link_npy_offsets(appr_alg->cur_element_count);
@@ -451,8 +448,6 @@ public:
 
     void setAnnData(const py::dict d) { /* WARNING: Index::setAnnData is not thread-safe with Index::addItems */
 
-
-      std::unique_lock <std::mutex> templock(appr_alg->global);
 
       assert_true(appr_alg->offsetLevel0_ == d["offset_level0"].cast<size_t>(), "Invalid value of offsetLevel0_ ");
       assert_true(appr_alg->max_elements_ == d["max_elements"].cast<size_t>(), "Invalid value of max_elements_ ");
