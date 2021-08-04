@@ -68,13 +68,16 @@ namespace hnswlib {
             memcpy(data_ + size_per_element_ * idx, datapoint, data_size_);
 
 
-
-
         };
 
-        void removePoint(labeltype cur_external) {
-            size_t cur_c=dict_external_to_internal[cur_external];
+        void checkIntegrity(){
+        }
 
+        bool removePoint(labeltype cur_external) {
+            if (dict_external_to_internal.find(cur_external) == dict_external_to_internal.end()) {
+                return false;
+            }
+            size_t cur_c=dict_external_to_internal[cur_external];
             dict_external_to_internal.erase(cur_external);
 
             labeltype label=*((labeltype*)(data_ + size_per_element_ * (cur_element_count-1) + data_size_));
@@ -83,9 +86,8 @@ namespace hnswlib {
                    data_ + size_per_element_ * (cur_element_count-1),
                    data_size_+sizeof(labeltype));
             cur_element_count--;
-
+            return true;
         }
-
 
         std::priority_queue<std::pair<dist_t, labeltype >>
         searchKnn(const void *query_data, size_t k) const {
