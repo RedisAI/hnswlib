@@ -1029,7 +1029,7 @@ namespace hnswlib {
 
           //  std::unique_lock <std::mutex> templock(global);
             int maxlevelcopy = maxlevel_;
-            if (curlevel <= maxlevelcopy)
+          //  if (curlevel <= maxlevelcopy)
             //    templock.unlock();
             tableint currObj = enterpoint_node_;
             tableint enterpoint_copy = enterpoint_node_;
