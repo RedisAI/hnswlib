@@ -25,7 +25,8 @@ namespace hnswlib {
         }
 
         HierarchicalNSW(SpaceInterface<dist_t> *s, size_t max_elements, size_t M = 16, size_t ef_construction = 200, size_t random_seed = 100) :
-                link_list_locks_(max_elements), link_list_update_locks_(max_update_element_locks), element_levels_(max_elements) {
+              //  link_list_locks_(max_elements), link_list_update_locks_(max_update_element_locks), 
+                element_levels_(max_elements) {
             max_elements_ = max_elements;
 
             num_deleted_ = 0;
@@ -101,13 +102,13 @@ namespace hnswlib {
 
 
         VisitedListPool *visited_list_pool_;
-        std::mutex cur_element_count_guard_;
+      //  std::mutex cur_element_count_guard_;
 
-        std::vector<std::mutex> link_list_locks_;
+       // std::vector<std::mutex> link_list_locks_;
 
         // Locks to prevent race condition during update/insert of an element at same time.
         // Note: Locks for additions can also be used to prevent this race condition if the querying of KNN is not exposed along with update/inserts i.e multithread insert/update/query in parallel.
-        std::vector<std::mutex> link_list_update_locks_;
+       // std::vector<std::mutex> link_list_update_locks_;
         tableint enterpoint_node_;
 
         size_t size_links_level0_;
@@ -182,7 +183,7 @@ namespace hnswlib {
 
                 tableint curNodeNum = curr_el_pair.second;
 
-                std::unique_lock <std::mutex> lock(link_list_locks_[curNodeNum]);
+               // std::unique_lock <std::mutex> lock(link_list_locks_[curNodeNum]);
 
                 int *data;// = (int *)(linkList0_ + curNodeNum * size_links_per_element0_);
                 if (layer == 0) {
@@ -426,7 +427,7 @@ namespace hnswlib {
 
             for (size_t idx = 0; idx < selectedNeighbors.size(); idx++) {
 
-                std::unique_lock <std::mutex> lock(link_list_locks_[selectedNeighbors[idx]]);
+             //   std::unique_lock <std::mutex> lock(link_list_locks_[selectedNeighbors[idx]]);
 
                 linklistsizeint *ll_other;
                 if (level == 0)
@@ -568,7 +569,7 @@ namespace hnswlib {
 
             element_levels_.resize(new_max_elements);
 
-            std::vector<std::mutex>(new_max_elements).swap(link_list_locks_);
+           // std::vector<std::mutex>(new_max_elements).swap(link_list_locks_);
 
             // Reallocate base layer
             char * data_level0_memory_new = (char *) realloc(data_level0_memory_, new_max_elements * size_data_per_element_);
@@ -687,8 +688,8 @@ namespace hnswlib {
             size_links_per_element_ = maxM_ * sizeof(tableint) + sizeof(linklistsizeint);
 
             size_links_level0_ = maxM0_ * sizeof(tableint) + sizeof(linklistsizeint);
-            std::vector<std::mutex>(max_elements).swap(link_list_locks_);
-            std::vector<std::mutex>(max_update_element_locks).swap(link_list_update_locks_);
+           // std::vector<std::mutex>(max_elements).swap(link_list_locks_);
+           // std::vector<std::mutex>(max_update_element_locks).swap(link_list_update_locks_);
 
             visited_list_pool_ = new VisitedListPool(1, max_elements);
 
@@ -896,7 +897,7 @@ namespace hnswlib {
                     getNeighborsByHeuristic2(candidates, layer == 0 ? maxM0_ : maxM_);
 
                     {
-                        std::unique_lock <std::mutex> lock(link_list_locks_[neigh]);
+                      //  std::unique_lock <std::mutex> lock(link_list_locks_[neigh]);
                         linklistsizeint *ll_cur;
                         ll_cur = get_linklist_at_level(neigh, layer);
                         size_t candSize = candidates.size();
@@ -922,7 +923,7 @@ namespace hnswlib {
                     while (changed) {
                         changed = false;
                         unsigned int *data;
-                        std::unique_lock <std::mutex> lock(link_list_locks_[currObj]);
+                       // std::unique_lock <std::mutex> lock(link_list_locks_[currObj]);
                         data = get_linklist_at_level(currObj,level);
                         int size = getListCount(data);
                         tableint *datal = (tableint *) (data + 1);
@@ -976,7 +977,7 @@ namespace hnswlib {
         }
 
         std::vector<tableint> getConnectionsWithLock(tableint internalId, int level) {
-            std::unique_lock <std::mutex> lock(link_list_locks_[internalId]);
+           // std::unique_lock <std::mutex> lock(link_list_locks_[internalId]);
             unsigned int *data = get_linklist_at_level(internalId, level);
             int size = getListCount(data);
             std::vector<tableint> result(size);
@@ -991,13 +992,13 @@ namespace hnswlib {
             {
                 // Checking if the element with the same label already exists
                 // if so, updating it *instead* of creating a new element.
-                std::unique_lock <std::mutex> templock_curr(cur_element_count_guard_);
+               // std::unique_lock <std::mutex> templock_curr(cur_element_count_guard_);
                 auto search = label_lookup_.find(label);
                 if (search != label_lookup_.end()) {
                     tableint existingInternalId = search->second;
-                    templock_curr.unlock();
+                 //   templock_curr.unlock();
 
-                    std::unique_lock <std::mutex> lock_el_update(link_list_update_locks_[(existingInternalId & (max_update_element_locks - 1))]);
+                   // std::unique_lock <std::mutex> lock_el_update(link_list_update_locks_[(existingInternalId & (max_update_element_locks - 1))]);
 
                     if (isMarkedDeleted(existingInternalId)) {
                         unmarkDeletedInternal(existingInternalId);
@@ -1017,8 +1018,8 @@ namespace hnswlib {
             }
 
             // Take update lock to prevent race conditions on an element with insertion/update at the same time.
-            std::unique_lock <std::mutex> lock_el_update(link_list_update_locks_[(cur_c & (max_update_element_locks - 1))]);
-            std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
+           // std::unique_lock <std::mutex> lock_el_update(link_list_update_locks_[(cur_c & (max_update_element_locks - 1))]);
+            //std::unique_lock <std::mutex> lock_el(link_list_locks_[cur_c]);
             int curlevel = getRandomLevel(mult_);
             if (level > 0)
                 curlevel = level;
@@ -1026,10 +1027,10 @@ namespace hnswlib {
             element_levels_[cur_c] = curlevel;
 
 
-            std::unique_lock <std::mutex> templock(global);
+          //  std::unique_lock <std::mutex> templock(global);
             int maxlevelcopy = maxlevel_;
             if (curlevel <= maxlevelcopy)
-                templock.unlock();
+            //    templock.unlock();
             tableint currObj = enterpoint_node_;
             tableint enterpoint_copy = enterpoint_node_;
 
@@ -1060,7 +1061,7 @@ namespace hnswlib {
                         while (changed) {
                             changed = false;
                             unsigned int *data;
-                            std::unique_lock <std::mutex> lock(link_list_locks_[currObj]);
+                           // std::unique_lock <std::mutex> lock(link_list_locks_[currObj]);
                             data = get_linklist(currObj,level);
                             int size = getListCount(data);
 
